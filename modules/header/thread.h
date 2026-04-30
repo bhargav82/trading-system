@@ -4,6 +4,13 @@
 #include <thread>
 #include <pthread.h>
 #include <mach/mach.h>
+#include <iostream>
+
+template<typename Func, typename... Args>
+auto launch_thread(int group_id, int qos, Func&& f, Args&& ...args) noexcept;
+
+bool set_thread_affinity(int group_id, int qos_class);
+
 
 enum class QoS {
     QOS_CLASS_DEFAULT = 0,// normal priority
@@ -15,36 +22,44 @@ enum class QoS {
 
 
 
+/// @brief A general wrapper function to create and launch a thread to execute any function with any number of parameters. Can also be pinned to a core 
+/// @tparam Func
+/// @tparam ...Args 
+/// @param f function to executre
+/// @param ...args arguments for given function
+/// @param group_id mach thread groups, group together threads that should share a core/L2 cache
+/// @param qos task priority, when should OS schedule this thread
+/// @return pointer to the thread object (nullptr when failed)
 template <typename Func, typename... Args>
-auto launch_thread(Func&& f, Args&& ...args, int group_id, int qos) noexcept {
+auto launch_thread(int group_id, int qos, Func&& f, Args&& ...args) noexcept {
     std::atomic<bool> failed(false);
     std::atomic<bool> running(false);
 
     auto thread_work = [&]() {
         if (qos < 0 || qos > 3 || !set_thread_affinity(group_id, qos)) {
-            std::cerr << "Failed to set thread affinity for " << pthread_self() << std::endl;
+            std::cerr << "Failed to set thread affinity for " << pthread_self << std::endl;
             failed = true;
             return;
         }
 
         std::cout << pthread_self() << " has been 'pinned' to group " << group_id << " with QoS " << qos << std::endl;
-        runnning = true;
+        running = true;
         std::forward<Func>(f)((std::forward<Args>(args))...);
-    }
+    };
     
     std::thread* thread = new std::thread(thread_work);
 
     // Thread has been scheduled but hasn't started doing any of its work yet
-    if (!failed.load() && !running.load()) {
+    while (!failed.load() && !running.load()) {
         std::this_thread::sleep_for(std::chrono::seconds(1));
     }
 
     if (failed) {
         thread->join();
         delete thread;
-        thread = nullptr
+        thread = nullptr;
     }
-    
+
     return thread;
 }
 
