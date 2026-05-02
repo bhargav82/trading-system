@@ -10,23 +10,25 @@ class MemoryPoolStack {
 };
 
 
-// mem pool allocated on heap, 1 vector to improve cache hits (free list and obj list)
 template <typename T>
 class MemoryPoolHeap final {
 private:
-    struct Object {
-        T t_;
-        bool is_free;
+    auto update_next_free() noexcept {
+        // 1. track this location so if you go all the way around, you'll know if you are out of space
+        // 2. use while loop, make sure to check if we went out of bounds, would it be faster to use modulo
+        // 3. make sure we didn't do full loop and are out of space
+    }
 
-        Object() t_() : is_free(true) {};
-    };
-    std::vector<Object> buffer;
+    std::byte* buffer;
+    std::vector<bool> is_free_list;
     size_t next_free;
+    size_t sz;
 
 public:
-    explicit MemoryPoolHeap(size_t n) : buffer(n), next_free(0) {
-        // make sure that the first object in the struct is actually the t object -> ensures we deallocate the right members
-        ASSERT(reinterpret_cast<Object*>&((buffer[0].t_)) == &(buffer[0]));
+    explicit MemoryPoolHeap(size_t n) : next_free(0), sz(n) {
+        buffer = new std::byte[n * sizeof(T)];
+        is_free_list.resize(n, true);
+        
     };
 
     // don't allow any other access
@@ -35,5 +37,36 @@ public:
     MemoryPoolHeap(MemoryPoolHeap&&) = delete;
     MemoryPoolHeap& operator=(const MemoryPoolHeap&) = delete;
     MemoryPoolHeap& operator=(MemoryPoolHeap&&) = delete;
+
+
+    // allocate space and update next available index 
+    // use placement new (ptr) T()
+    template <typename ...Args>
+    T* construct(Args&& ...args) noexcept {
+        // 1. Find the address of the next free location
+        // 2. construct the T object usign the forwarded args, use placement new to construct the object in place found above
+        // 3. update the bool at this address to be not free
+        // 4. update the next free free variable
+        // 5. return t object
+    }
+
+    auto destruct(const T* t_) noexcept {
+        // 1. Find the index, by subtracting pointer from state (std::byte so need to device by sizeof(T))
+        size_t t_index = (t_ - buffer)/sizeof(T);
+        
+        // 2. Assert index is valid
+        ASSERT(t_index >= 0 && t_index < sz && "t_index is out of range");
+
+        // 3. just need to update is_free of that index
+        ASSERT(is_free_list[t_index] == false && "t_index is not currently used")
+        is_free_list[t_index] = true;
+
+
+    } 
+
+
+    ~MemoryPoolHeap() {
+        // go through all the 
+    }
 
 };
