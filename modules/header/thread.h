@@ -44,6 +44,8 @@ auto launch_thread(int group_id, int qos, Func&& f, Args&& ...args) noexcept {
 
         std::cout << pthread_self() << " has been 'pinned' to group " << group_id << " with QoS " << qos << std::endl;
         running = true;
+
+        // Execute forwarded function with forwarded arguments
         std::forward<Func>(f)((std::forward<Args>(args))...);
     };
     
