@@ -37,7 +37,7 @@ auto launch_thread(int group_id, int qos, Func&& f, Args&& ...args) noexcept {
 
     auto thread_work = [&]() {
         if (qos < 0 || qos > 3 || !set_thread_affinity(group_id, qos)) {
-            std::cerr << "Failed to set thread affinity for " << pthread_self << std::endl;
+            std::cerr << "Failed to set thread affinity for " << pthread_self() << std::endl;
             failed = true;
             return;
         }

@@ -13,20 +13,29 @@ class MemoryPoolStack {
 template <typename T>
 class MemoryPoolHeap final {
 private:
-    auto update_next_free() noexcept {
-        // 1. track this location so if you go all the way around, you'll know if you are out of space
-        // 2. use while loop, make sure to check if we went out of bounds, would it be faster to use modulo
-        // 3. make sure we didn't do full loop and are out of space
-    }
-
     std::byte* buffer;
     std::vector<bool> is_free_list;
     size_t next_free;
     size_t sz;
 
+    void update_next_free() noexcept {
+        size_t current_free_idx = next_free;
+        while (!is_free_list[next_free]) {
+            ++next_free;
+            if (next_free == sz) [[unlikely]] { // wrap around
+                next_free = 0;
+            }
+            if (next_free == current_free_idx) [[unlikely]] { // went full circle
+                std::cerr << "Ran out of memory in pool" << std::endl;
+                std::abort();
+            }
+        }
+    };
+
 public:
     explicit MemoryPoolHeap(size_t n) : next_free(0), sz(n) {
         buffer = new std::byte[n * sizeof(T)];
+        memset(buffer, 0, n * sizeof(T));
         is_free_list.resize(n, true);
         
     };
@@ -50,26 +59,25 @@ public:
         // 5. return t object
     }
 
-    auto destruct(const T* t_) noexcept {
+    void destruct(const T* t_) noexcept {
         // 1. Find the index, by subtracting pointer from state (std::byte so need to device by sizeof(T))
         size_t t_index = (t_ - buffer)/sizeof(T);
-        
+
         // 2. Assert index is valid
         ASSERT(t_index >= 0 && t_index < sz && "t_index is out of range");
 
-        // 3. just need to update is_free of that index
+        // 3. just need to update is_free of that index and destroy object in that space
         ASSERT(is_free_list[t_index] == false && "t_index is not currently used")
+        (buffer + t_index * sizeof(T))->~T();
         is_free_list[t_index] = true;
-
-
-    } 
+    }
 
 
     ~MemoryPoolHeap() {
         // go through all the objects in free list that = false (meaning there is an object here and call destructor)
         for (size_t i = 0; i < sz; ++i) {
             if (!is_free_list[i]) {
-                (buffer + i * sizeof(T))->~();
+                (buffer + i * sizeof(T))->~T();
             }
         }
 
