@@ -66,7 +66,16 @@ public:
 
 
     ~MemoryPoolHeap() {
-        // go through all the 
+        // go through all the objects in free list that = false (meaning there is an object here and call destructor)
+        for (size_t i = 0; i < sz; ++i) {
+            if (!is_free_list[i]) {
+                (buffer + i * sizeof(T))->~();
+            }
+        }
+
+        // deallocate the byte buffer as well
+        delete[] buffer;
+
     }
 
 };
