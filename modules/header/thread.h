@@ -30,7 +30,7 @@ enum class QoS {
 /// @param ...args arguments for given function
 /// @param group_id mach thread groups, group together threads that should share a core/L2 cache
 /// @param qos task priority, when should OS schedule this thread
-/// @return pointer to the thread object (nullptr when failed)
+/// @return pointer to the thread object (nullptr when failed), caller is responsible for deletion
 template <typename Func, typename... Args>
 auto launch_thread(int group_id, int qos, Func&& f, Args&& ...args) noexcept {
     std::atomic<bool> failed(false);
@@ -47,7 +47,7 @@ auto launch_thread(int group_id, int qos, Func&& f, Args&& ...args) noexcept {
         running = true;
 
         // Execute forwarded function with forwarded arguments
-        std::forward<Func>(f)((std::forward<Args>(args))...);
+        std::forward<Func>(f)((std::forward<Args>(args))...); // f(arg1, arg2, ...)
     };
     
     std::thread* thread = new std::thread(thread_work);

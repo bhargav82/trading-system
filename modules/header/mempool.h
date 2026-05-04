@@ -41,8 +41,8 @@ public:
         buffer = reinterpret_cast<T*>(temp);
         memset(buffer, 0, n);
         is_free_list.resize(n, true);
-        
     };
+    // [] [] [] [] []
 
     // don't allow any other access
     MemoryPoolHeap() = delete;
@@ -52,27 +52,30 @@ public:
     MemoryPoolHeap& operator=(MemoryPoolHeap&&) = delete;
 
 
-    // allocate space and update next available index 
-    // use placement new (ptr) T()
+    // use placement new (ptr) T() to construct the object in the next free space, update counter after
     template <typename ...Args>
     [[nodiscard]] T* construct(Args&& ...args) noexcept {
         // 1. Find the address of the next free location
         T* insert_loc = buffer + next_free;
+
         // 2. construct the T object usign the forwarded args, use placement new to construct the object in place found above
         T* t_ = new (insert_loc) T(std::forward<Args>(args)...);
-        // std::cout << "inserted at " << next_free << " ";
+
         // 3. update the bool at this address to be not free
         is_free_list[next_free] = false;
+
         // 4. update the next free free variable
         update_next_free();
-        // 5. return t object
+
+       
         return t_;
     }
 
+    
     void destruct(const T* t_) noexcept {
         // 1. Find the index, by subtracting pointer from state (std::byte so need to device by sizeof(T))
         size_t t_index = t_ - buffer;
-        // std::cout << "destroyed at " << t_index << "\n";
+        
         // 2. Assert index is valid
         assert(t_index >= 0 && t_index < sz && "t_index is out of range");
 
