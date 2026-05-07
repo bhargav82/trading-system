@@ -38,7 +38,7 @@ class SPSCQueue {
 public:
     explicit SPSCQueue(size_t cap) : buffer(new T[cap]), push_ptr(0), pop_ptr(0), capacity(cap), sz(0) {
        
-    };
+    }
 
     SPSCQueue() = delete;
     SPSCQueue(const SPSCQueue& other) = delete;
