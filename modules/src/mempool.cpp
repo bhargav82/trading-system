@@ -1,16 +1,6 @@
 #include "../header/mempool.h"
-#include <string>
+#include "../header/common.h"
 
-struct Object {
-    int val;
-    std::string str;
-
-    Object() = delete;
-    Object(int v, std::string s) : val(v), str(s) {};
-    void print() {
-        std::cout << this->val << " " << this->str << std::endl;
-    }
-};
 int main(int argc, char* argv[]) {
     
     MemoryPoolHeap<Object> mp(4);

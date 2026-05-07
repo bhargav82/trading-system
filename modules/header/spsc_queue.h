@@ -1,5 +1,6 @@
 #include <deque>
 #include <mutex>
+#include <iostream>
 
 // Normal thread-safe queue using locks
 template <typename T>
@@ -37,7 +38,7 @@ template <typename T>
 class SPSCQueue {
 public:
     explicit SPSCQueue(size_t cap) : buffer(new T[cap]), push_ptr(0), pop_ptr(0), capacity(cap), sz(0) {
-       
+        
     }
 
     SPSCQueue() = delete;
@@ -47,32 +48,37 @@ public:
     SPSCQueue& operator=(SPSCQueue&& other) = delete;
 
     
-    template <Args ...args>
+    template <typename ...Args>
     void emplace(Args&& ...args) {
-        // inplace construction of object
+        if (try_emplace()) {
+            new (buffer + push_ptr++) T(std::forward<Args>(args)...);
+            ++sz;
+            std::cout << "Inserted at position: " << push_ptr - 1 << "\n";
+        } else {
+            std::cout << "Full queue, could not insert at " << push_ptr << "\n";
+        }
     }
 
-    inline [[nodiscard]] bool try_emplace() { 
-        // check if object can be placed in (not full)
-        return !(is_full);
+    [[nodiscard]] inline bool try_emplace() { 
+        return !(is_full());
     }
     
 
-    template<tpyename ...Args>
-    void push(Args&& ...args) {
-        // try to push the object into the end of the queue
-        // check if the queue is full first
-        // no inplace construction, build object, then push using forwarding 
+    void push(const T& other) {
+        if (try_push()) {
+            buffer[push_ptr++] = other;
+            ++sz;
+        }
     }
 
-    inline [[nodiscard]] bool try_push() {
-        return !(is_full);
+    [[nodiscard]] inline bool try_push() {
+        return !(is_full());
     }
 
     T* front() {
         // return the front of the queue if not empty
         if (!is_empty()) {
-            return buffer[pop_ptr];
+            return (buffer + pop_ptr);
         }
 
         return nullptr;
@@ -82,8 +88,10 @@ public:
         T* top = front();
 
         //TODO: check if this will destroy the obhect
-        if (!top) {
-            buffer[pop_ptr++]->T~();
+        if (top) {
+            (buffer + pop_ptr++)->~T();
+            --sz;
+            std::cout << "Popped the top off" << "\n";
         }
 
         return *top; 
@@ -98,14 +106,20 @@ public:
         return push_ptr - pop_ptr == 0;
     }
 
-    SPSCQueue~() {
-        for (size_t i = 0; i < sz; ++i) {
-            if (!std::is_triviailly_destructible(cap[i])) {
-                buffer[i]->T~();
+    ~SPSCQueue() {
+        if (!std::is_trivially_destructible_v<T>) {
+            for (size_t i = 0; i < sz; ++i) {
+                (buffer + i)->~T();
             }
         }
 
         delete[] buffer;
+    }
+
+    void print() {
+        for (size_t i = 0; i < sz; ++i) {
+            std::cout << "element at " << i << " " << *(buffer + i);
+        }
     }
 
 
