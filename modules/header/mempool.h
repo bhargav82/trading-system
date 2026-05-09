@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <iostream>
 #include <cassert>
+#include <cstddef>
 
 
 // Mem pool on stack, used when objects are small or there are very few (won't stack overflow)

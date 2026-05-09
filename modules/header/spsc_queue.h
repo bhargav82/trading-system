@@ -89,7 +89,9 @@ public:
 
         //TODO: check if this will destroy the obhect
         if (top) {
-            (buffer + pop_ptr++)->~T();
+            (buffer + pop_ptr)->~T();
+            std::memset(buffer + pop_ptr, 0, sizeof(T));
+            ++pop_ptr;
             --sz;
             std::cout << "Popped the top off" << "\n";
         }
