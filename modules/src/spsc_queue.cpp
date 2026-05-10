@@ -2,6 +2,7 @@
 #include "../header/common.h"
 #include "../header/mempool.h"
 
+
 int main(int argc, char* argv[]) {
     SPSCQueue<SimpleObj> obj_queue(3);
     obj_queue.emplace(1, "first");
