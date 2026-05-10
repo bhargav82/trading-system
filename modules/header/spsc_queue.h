@@ -52,8 +52,13 @@ public:
     void emplace(Args&& ...args) {
         if (try_emplace()) {
             new (buffer + push_ptr++) T(std::forward<Args>(args)...);
-            ++sz;
+
             std::cout << "Inserted at position: " << push_ptr - 1 << "\n";
+            if (push_ptr == capacity) [[unlikely]] {
+                push_ptr = 0;
+            }
+            ++sz;
+            
         } else {
             std::cout << "Full queue, could not insert at " << push_ptr << "\n";
         }
@@ -66,6 +71,9 @@ public:
 
     void push(const T& other) {
         if (try_push()) {
+            if (push_ptr == capacity) [[unlikely]] {
+                push_ptr = 0;
+            }
             buffer[push_ptr++] = other;
             ++sz;
         }
@@ -92,6 +100,9 @@ public:
             (buffer + pop_ptr)->~T();
             std::memset(buffer + pop_ptr, 0, sizeof(T));
             ++pop_ptr;
+            if (pop_ptr == capacity) [[unlikely]] {
+                pop_ptr = 0;
+            } 
             --sz;
             std::cout << "Popped the top off" << "\n";
         }
@@ -105,7 +116,7 @@ public:
     }
 
     inline bool is_empty() {
-        return push_ptr - pop_ptr == 0;
+        return push_ptr - pop_ptr == 0 && !sz;
     }
 
     ~SPSCQueue() {
@@ -118,8 +129,9 @@ public:
         delete[] buffer;
     }
 
+    // may be printing too much 
     void print() {
-        for (size_t i = 0; i < sz; ++i) {
+        for (size_t i = 0; i < capacity; ++i) {
             std::cout << "element at " << i << " " << *(buffer + i);
         }
     }
