@@ -1,9 +1,13 @@
 #include <deque>
 #include <mutex>
 #include <iostream>
+#include <utility>
+#include <new>
 #include "log.h"
 
 // Normal thread-safe queue using locks
+// Lock_Guard ensures that lock is released at end of scope, even if an exception is thrown
+// All operations are blocking, concurrent called serialize on mutex
 template <typename T>
 class LockedQueue {
 private:
@@ -11,125 +15,166 @@ private:
     std::mutex m;
 
 public:
-    // lock before accessing queue
+    // Pushes a copy of val onto the back of the queue
     void push(const T& val) {
         std::lock_guard<std::mutex> lock(m);
         queue.push_back(val);
-    }; // auto unlocks at end of scope
+    }; 
 
-    T& pop() {
-        // without using a guard can be dangerous if critical section throws an exception -> thread never releases lock -> deadlock
-        m.lock();
-        queue.pop_front();
-        m.unlock();
+    // Removes the front element
+    void pop() {
+        std::lock_guard<std::mutex> lock(m);
+        if (!queue.empty()) {
+            queue.pop_front();
+        }
     };
 
+    // Returns a copy of the front element, without removing it
     T& top() {
-        m.lock();
-        queue.at(0);
-        m.unlock();
+        std::lock_guard<std::mutex> lock(m);
+        if (!queue.empty()) {
+            return queue.at(0);
+        }
     };
 };
 
 
+// Use compiler-provided cache line size, fall back to 64 bytes
+#if defined(__cpp_lib_hardware_destructive_interference_size)
+static constexpr size_t cache_line = std::hardware_destructive_interference_size;
+#else
+static constexpr size_t cache_line = 64;
+#endif
 
-// Implement a SPSC circular ring buffer (array), allowing pop and push using indices (no locks)
 
+// Lock-free single-producer single-consumer ring buffer.
+// Invariants:
+//   - head_ptr never overtakes tail_ptr (no reading from empty slots)
+//   - tail_ptr never overtakes head_ptr (no overwriting unconsumed slots)
+//   - push/emplace called only from the producer thread
+//   - pop/top/peek called only from the consumer thread
+// Violating the single-thread-per-side constraint breaks the lock-free guarantees.
 template <typename T>
 class SPSCQueue {
 public:
-    explicit SPSCQueue(size_t cap) : buffer(new T[cap]), capacity(cap) {};
 
-    SPSCQueue() = delete;
+    
+    // Allocates cap + 1 slots internally — the extra slot is the "wasted slot"
+    // used to distinguish full from empty without a separate counter.
+    // The caller-visible capacity is still cap.
+    // Requires: cap >= 1.
+    explicit SPSCQueue(size_t cap) : buffer(new T[cap + 1]), capacity(cap + 1) {}
+
+
+    SPSCQueue() = delete;                                                       
     SPSCQueue(const SPSCQueue& other) = delete;
     SPSCQueue(SPSCQueue&& other) = delete;
     SPSCQueue& operator=(const SPSCQueue& other) = delete;
     SPSCQueue& operator=(SPSCQueue&& other) = delete;
 
-    
-    template <typename ...Args>
-    void emplace(Args&& ...args) {
-        if (try_insert()) {
+
+
+    // Requires: queue is not full.
+    // Modifies: constructs T in-place at tail, advances tail_ptr.
+    // Effects:  forwards args directly into buffer — no copy or move of T.
+    template<typename ...Args>
+    void emplace_back(Args&& ...args) { 
+        std::pair<bool, size_t> ret = try_insert();
+
+        if (ret.first) {
             new (buffer + prod.tail_ptr) T(std::forward<Args>(args)...);
-            LOG("Emplaced back at position: " << prod.tail_ptr);
-        } 
-
-    }
-
-    
-    void push(const T& other) {
-        if (try_insert()) {
-            buffer[prod.tail_ptr] = other;
-            LOG("Pushed back at position: " << prod.tail_ptr);
+            LOG("emplace_back: Inserted at position " << prod.tail_ptr);
+            prod.tail_ptr.store(ret.second);
         }
     }
 
-    
-    [[nodiscard]] inline bool try_insert() {
+    // Requires: queue is not full.
+    // Modifies: move-assigns other into buffer at tail, advances tail_ptr.
+    // Effects:  prefer emplace_back if constructing from scratch.
+    void push_back(T&& other) {
+        std::pair<bool, size_t> ret = try_insert();
+
+        if (ret.first) {
+            buffer[prod.tail_ptr] = std::forward<T>(other);
+            LOG("push_back: Inserted at position " << prod.tail_ptr);
+            prod.tail_ptr.store(ret.second);
+        }
+    }
+
+
+    // Requires: nothing.
+    // Modifies: may update cached_head from cons.head_ptr if queue appeared full.
+    // Effects:  returns {true, next_tail} if space is available, {false, 0} if full.
+    //           next_tail is pre-computed so callers can write first, then store atomically.
+    [[nodiscard]] inline std::pair<bool, size_t> try_insert() {
         size_t next = prod.tail_ptr + 1;
-        if (next == capacity) [[unlikely]] { // skip modulo operation
+        if (next == capacity) [[unlikely]] {
             next = 0;
         }
-
-        if (next == prod.cached_head) { // check if the queue is full, double check with the loaded 
+        
+        // Load the atomic value only when necessary
+        if (next == prod.cached_head) {
             prod.cached_head = cons.head_ptr.load();
-            if (next == prod.cached_head) { // check memory ordering
-                LOG("Could not insert, full queue.");
-                return false;
+
+            if (next == prod.cached_head) {
+                LOG("emplace_back: Could not insert (Full queue).");
+                return {false, 0};
             }
         }
 
-        prod.tail_ptr.store(next); // update the tail ptr with the next ptr, check memory ordering
-        return true;
+        return {true, next};
     }
 
 
-    T* front() {
-        // return the front of the queue if not empty, don't update the head ptr
-        if (!check_top()) {
-            return (buffer + cons.head_ptr);
+    // Requires: nothing.
+    // Modifies: nothing.
+    // Effects:  returns pointer to the front element, or nullptr if empty.
+    T* top() {
+        if (!peek()) {
+            return nullptr;
         }
+        return buffer + cons.head_ptr;
 
-        return nullptr;
     }
 
-    T& pop() {
-        T* top = front();
 
-        if (top) {
-            size_t pop_ptr = cons.head_ptr.load();
-            (buffer + pop_ptr)->~T();
-            std::memset(buffer + pop_ptr, 0, sizeof(T));
-            ++pop_ptr;
-            if (pop_ptr == capacity) [[unlikely]] {
-                pop_ptr = 0;
+    // Requires: nothing.
+    // Modifies: calls ~T() and zeroes the slot at head, advances head_ptr.
+    // Effects:  no-op if queue is empty.
+    void pop() {
+        if (top()) {
+            size_t head = cons.head_ptr;
+            (buffer + head)->~T();
+            std::memset(buffer + head, 0, sizeof(T));
+
+            ++head;
+            if (head == capacity) [[unlikely]] {
+                head = 0;
             }
-            cons.head_ptr.store(pop_ptr);
-            std::cout << "Popped the top off" << "\n";
-        }
 
-        return *top; 
+            cons.head_ptr.store(head);
+            LOG("pop: Popped the top off.");
+        }
     }
 
-    [[nodiscard]] inline bool check_top() {
-        /*
-            1. find current position to pop off from
-            2. check if this position is equal to cached head, if so double check by loading in actual head
-            3. return true if you get past this
-        */
-        if (cons.head_ptr == cons.cached_tail) {
+    // Requires: nothing.
+    // Modifies: may update cached_tail from prod.tail_ptr if queue appeared empty.
+    // Effects:  returns true if at least one element is available to consume.
+    [[nodiscard]] bool inline peek() {
+        if (cons.cached_tail == cons.head_ptr) {
             cons.cached_tail = prod.tail_ptr.load();
-            if (cons.head_ptr == cons.cached_tail) {
-                LOG("Can not pop, empty queue.");
+
+            if (cons.cached_tail == cons.head_ptr) {
+                LOG("peek: Queue is full.");
                 return false;
             }
         }
-
         return true;
     }
 
-
-
+    // Requires: nothing.
+    // Modifies: calls ~T() on all live elements if T is not trivially destructible, frees buffer.
+    // Effects:  safe to call even if queue is partially filled.
     ~SPSCQueue() {
         if (!std::is_trivially_destructible_v<T>) {
             for (size_t i = 0; i < capacity; ++i) {
@@ -140,7 +185,10 @@ public:
         delete[] buffer;
     }
 
-    // may be printing too much 
+    
+    // Requires: nothing.
+    // Modifies: nothing.
+    // Effects:  prints every slot in the buffer including empty ones, debug only.
     void print() {
         for (size_t i = 0; i < capacity; ++i) {
             std::cout << "element at " << i << " " << *(buffer + i);
@@ -149,21 +197,25 @@ public:
 
 
 private:
-struct alignas(64) Producer {
-    std::atomic<size_t> tail_ptr{0}; // always write to this (don't need to load since there is only 1 producer, will need to store), actually push_ptr
-    size_t cached_head{0}; // keep a local cached head that only needs to check if it reaches the capacity, then load it the actual head_ptr, and check if it hit the end
-};
+    
+    // Owned exclusively by consumer thread.
+    // Empty when head_ptr == tail_ptr.
+    // Advance head pointer only on pop().
+    struct alignas(cache_line) Consumer {
+        std::atomic<size_t> head_ptr{0};    // written by consumer, read by producer
+        size_t cached_tail{0};              // local snapshot of tail, refresh from producer when queue appears empty
+    };
 
-struct alignas(64) Consumer {
-    std::atomic<size_t> head_ptr{0};
-    size_t cached_tail{0};
-};
+    // Owned exclusively by the producer thread.
+    // Full when next(tail_ptr) == head_ptr (wasted-slot scheme).
+    // Writes to tail_ptr (back of queue), advancing it forward on each push.
+    struct alignas(cache_line) Producer {
+        std::atomic<size_t> tail_ptr{0};    // written by producer, read by consumer 
+        size_t cached_head{0};              // local snapshot of head, refrsh from consumer when queue appears full
+    };
 
-    Producer prod;
-    Consumer cons;
     T* buffer;
     size_t capacity;
-    
+    Consumer cons;
+    Producer prod;
 };
-
-// Invariant: Push ptr can never equal pop ptr after it starts, 
