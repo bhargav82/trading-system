@@ -3,7 +3,9 @@
 #include <iostream>
 #include <utility>
 #include <new>
+#include <vector>
 #include "log.h"
+
 
 // Normal thread-safe queue using locks
 // Lock_Guard ensures that lock is released at end of scope, even if an exception is thrown
@@ -172,6 +174,7 @@ public:
         return true;
     }
 
+    
     // Requires: nothing.
     // Modifies: calls ~T() on all live elements if T is not trivially destructible, frees buffer.
     // Effects:  safe to call even if queue is partially filled.
@@ -194,6 +197,20 @@ public:
             std::cout << "element at " << i << " " << *(buffer + i);
         }
     }
+
+   
+
+    // Drain the whole queue into a vector via top()/pop()
+    std::vector<T> drain() {
+        std::vector<T> out;
+        while (T* p = top()) {
+            out.push_back(*p);
+            pop();
+        }
+        return out;
+    }
+
+    
 
 
 private:
