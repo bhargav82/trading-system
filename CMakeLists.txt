@@ -12,16 +12,17 @@ FetchContent_Declare(
     URL https://github.com/google/googletest/archive/03597a01ee50ed33e9dfd640b249b4be3799d395.zip
 )
 
-# Download + add googletest targets
-FetchContent_MakeAvailable(googletest)
+FetchContent_Declare(
+    googlebenchmark
+    GIT_REPOSITORY https://github.com/google/benchmark.git
+    GIT_TAG        v1.9.1
+    GIT_SHALLOW    TRUE
+)
 
-# Enable CTest support
+set(BENCHMARK_ENABLE_TESTING OFF)
+
+FetchContent_MakeAvailable(googletest googlebenchmark)
+
 enable_testing()
 
-
-# Add your test project
 add_subdirectory(header/tests)
-
-if(NOT CMAKE_BUILD_TYPE)
-    set(CMAKE_BUILD_TYPE Debug)
-endif()

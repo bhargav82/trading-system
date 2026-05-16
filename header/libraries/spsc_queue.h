@@ -65,7 +65,7 @@ public:
     // used to distinguish full from empty without a separate counter.
     // The caller-visible capacity is still cap.
     // Requires: cap >= 1.
-    explicit SPSCQueue(size_t cap) : buffer(new T[cap + 1]), capacity(cap + 1) {}
+    explicit SPSCQueue(size_t cap) : queue{new T[cap + 1], cap + 1} {}
 
 
     SPSCQueue() = delete;                                                       
@@ -84,11 +84,12 @@ public:
         std::pair<bool, size_t> ret = try_insert();
 
         if (ret.first) {
-            new (buffer + prod.tail_ptr) T(std::forward<Args>(args)...);
+            new (queue.buffer + prod.tail_ptr) T(std::forward<Args>(args)...);
             LOG("emplace_back: Inserted at position " << prod.tail_ptr);
             prod.tail_ptr.store(ret.second);
         }
     }
+
 
     // Requires: queue is not full.
     // Modifies: move-assigns other into buffer at tail, advances tail_ptr.
@@ -97,7 +98,7 @@ public:
         std::pair<bool, size_t> ret = try_insert();
 
         if (ret.first) {
-            buffer[prod.tail_ptr] = std::forward<T>(other);
+            queue.buffer[prod.tail_ptr] = std::forward<T>(other);
             LOG("push_back: Inserted at position " << prod.tail_ptr);
             prod.tail_ptr.store(ret.second);
         }
@@ -110,7 +111,7 @@ public:
     //           next_tail is pre-computed so callers can write first, then store atomically.
     [[nodiscard]] inline std::pair<bool, size_t> try_insert() {
         size_t next = prod.tail_ptr + 1;
-        if (next == capacity) [[unlikely]] {
+        if (next == queue.capacity) [[unlikely]] {
             next = 0;
         }
         
@@ -135,8 +136,7 @@ public:
         if (!peek()) {
             return nullptr;
         }
-        return buffer + cons.head_ptr;
-
+        return queue.buffer + cons.head_ptr;
     }
 
 
@@ -146,11 +146,11 @@ public:
     void pop() {
         if (top()) {
             size_t head = cons.head_ptr;
-            (buffer + head)->~T();
-            std::memset(buffer + head, 0, sizeof(T));
+            (queue.buffer + head)->~T();
+            std::memset(queue.buffer + head, 0, sizeof(T));
 
             ++head;
-            if (head == capacity) [[unlikely]] {
+            if (head == queue.capacity) [[unlikely]] {
                 head = 0;
             }
 
@@ -178,14 +178,14 @@ public:
     // Requires: nothing.
     // Modifies: calls ~T() on all live elements if T is not trivially destructible, frees buffer.
     // Effects:  safe to call even if queue is partially filled.
-    ~SPSCQueue() {
+    ~SPSCQueue() { 
         if (!std::is_trivially_destructible_v<T>) {
-            for (size_t i = 0; i < capacity; ++i) {
-                (buffer + i)->~T();
+            for (size_t i = 0; i < queue.capacity; ++i) {
+                (queue.buffer + i)->~T();
             }
         }
 
-        delete[] buffer;
+        delete[] queue.buffer;
     }
 
     
@@ -193,8 +193,8 @@ public:
     // Modifies: nothing.
     // Effects:  prints every slot in the buffer including empty ones, debug only.
     void print() {
-        for (size_t i = 0; i < capacity; ++i) {
-            std::cout << "element at " << i << " " << *(buffer + i);
+        for (size_t i = 0; i < queue.capacity; ++i) {
+            std::cout << "element at " << i << " " << *(queue.buffer + i);
         }
     }
 
@@ -231,8 +231,12 @@ private:
         size_t cached_head{0};              // local snapshot of head, refrsh from consumer when queue appears full
     };
 
-    T* buffer;
-    size_t capacity;
+    struct alignas(cache_line) Queue {
+        T* buffer;
+        size_t capacity;
+    };
+   
     Consumer cons;
     Producer prod;
+    Queue queue;
 };

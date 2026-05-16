@@ -4,6 +4,7 @@
 
 
 
+
 TEST(SPSCQueue, BasicTest) {
     SPSCQueue<SimpleObj> obj_queue(4);    
     obj_queue.emplace_back(1, "first");
@@ -141,4 +142,3 @@ TEST(SPSCQueue, CapacityOne) {
     q.pop();
     EXPECT_EQ(q.top(), nullptr);
 }
- 
