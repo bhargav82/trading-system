@@ -85,7 +85,7 @@ public:
 
         if (ret.first) {
             new (queue.buffer + prod.tail_ptr) T(std::forward<Args>(args)...);
-            LOG("emplace_back: Inserted at position " << prod.tail_ptr);
+           // LOG("emplace_back: Inserted at position " << prod.tail_ptr);
             prod.tail_ptr.store(ret.second);
         }
     }
@@ -115,12 +115,12 @@ public:
             next = 0;
         }
         
-        // Load the atomic value only when necessary
+        // Load the atomic value only when necessary (CHECK MEMORY ordering)
         if (next == prod.cached_head) {
             prod.cached_head = cons.head_ptr.load();
 
             if (next == prod.cached_head) {
-                LOG("emplace_back: Could not insert (Full queue).");
+                //LOG("emplace_back: Could not insert (Full queue).");
                 return {false, 0};
             }
         }

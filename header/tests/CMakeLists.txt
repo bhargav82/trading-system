@@ -1,3 +1,5 @@
+link_directories(/opt/homebrew/lib)
+
 add_executable(tests
     spsc_queue.cpp
     thread.cpp
@@ -24,8 +26,10 @@ target_compile_definitions(benchmarks PRIVATE LOG_LEVEL=0)
 target_include_directories(benchmarks
     PRIVATE
         ${CMAKE_SOURCE_DIR}/header/libraries
+        /opt/homebrew/include
 )
 target_link_libraries(benchmarks
     PRIVATE
         benchmark::benchmark_main
+        profiler
 )
