@@ -65,7 +65,7 @@ public:
     // used to distinguish full from empty without a separate counter.
     // The caller-visible capacity is still cap.
     // Requires: cap >= 1.
-    explicit SPSCQueue(size_t cap) : queue{new T[cap + 1], cap + 1} {}
+    explicit SPSCQueue(uint64_t cap) : queue{new T[cap + 1], cap + 1} {}
 
 
     SPSCQueue() = delete;                                                       
@@ -81,12 +81,12 @@ public:
     // Effects:  forwards args directly into buffer — no copy or move of T.
     template<typename ...Args>
     void emplace_back(Args&& ...args) { 
-        std::pair<bool, size_t> ret = try_insert();
+        std::pair<bool, uint64_t> ret = try_insert();
 
         if (ret.first) {
             new (queue.buffer + prod.tail_ptr) T(std::forward<Args>(args)...);
            // LOG("emplace_back: Inserted at position " << prod.tail_ptr);
-            prod.tail_ptr.store(ret.second);
+            prod.tail_ptr.store(ret.second, std::memory_order_release);
         }
     }
 
@@ -95,12 +95,12 @@ public:
     // Modifies: move-assigns other into buffer at tail, advances tail_ptr.
     // Effects:  prefer emplace_back if constructing from scratch.
     void push_back(T&& other) {
-        std::pair<bool, size_t> ret = try_insert();
+        std::pair<bool, uint64_t> ret = try_insert();
 
         if (ret.first) {
             queue.buffer[prod.tail_ptr] = std::forward<T>(other);
             LOG("push_back: Inserted at position " << prod.tail_ptr);
-            prod.tail_ptr.store(ret.second);
+            prod.tail_ptr.store(ret.second, std::memory_order_release);
         }
     }
 
@@ -109,15 +109,15 @@ public:
     // Modifies: may update cached_head from cons.head_ptr if queue appeared full.
     // Effects:  returns {true, next_tail} if space is available, {false, 0} if full.
     //           next_tail is pre-computed so callers can write first, then store atomically.
-    [[nodiscard]] inline std::pair<bool, size_t> try_insert() {
-        size_t next = prod.tail_ptr + 1;
+    [[nodiscard]] inline std::pair<bool, uint64_t> try_insert() {
+        uint64_t next = prod.tail_ptr + 1;
         if (next == queue.capacity) [[unlikely]] {
             next = 0;
         }
         
         // Load the atomic value only when necessary (CHECK MEMORY ordering)
         if (next == prod.cached_head) {
-            prod.cached_head = cons.head_ptr.load();
+            prod.cached_head = cons.head_ptr.load(std::memory_order_acquire);
 
             if (next == prod.cached_head) {
                 //LOG("emplace_back: Could not insert (Full queue).");
@@ -145,7 +145,7 @@ public:
     // Effects:  no-op if queue is empty.
     void pop() {
         if (top()) {
-            size_t head = cons.head_ptr;
+            uint64_t head = cons.head_ptr;
             (queue.buffer + head)->~T();
             std::memset(queue.buffer + head, 0, sizeof(T));
 
@@ -154,7 +154,7 @@ public:
                 head = 0;
             }
 
-            cons.head_ptr.store(head);
+            cons.head_ptr.store(head, std::memory_order_release);
             LOG("pop: Popped the top off.");
         }
     }
@@ -164,7 +164,7 @@ public:
     // Effects:  returns true if at least one element is available to consume.
     [[nodiscard]] bool inline peek() {
         if (cons.cached_tail == cons.head_ptr) {
-            cons.cached_tail = prod.tail_ptr.load();
+            cons.cached_tail = prod.tail_ptr.load(std::memory_order_acquire);
 
             if (cons.cached_tail == cons.head_ptr) {
                 LOG("peek: Queue is full.");
@@ -180,7 +180,7 @@ public:
     // Effects:  safe to call even if queue is partially filled.
     ~SPSCQueue() { 
         if (!std::is_trivially_destructible_v<T>) {
-            for (size_t i = 0; i < queue.capacity; ++i) {
+            for (uint64_t i = 0; i < queue.capacity; ++i) {
                 (queue.buffer + i)->~T();
             }
         }
@@ -193,7 +193,7 @@ public:
     // Modifies: nothing.
     // Effects:  prints every slot in the buffer including empty ones, debug only.
     void print() {
-        for (size_t i = 0; i < queue.capacity; ++i) {
+        for (uint64_t i = 0; i < queue.capacity; ++i) {
             std::cout << "element at " << i << " " << *(queue.buffer + i);
         }
     }
@@ -219,21 +219,21 @@ private:
     // Empty when head_ptr == tail_ptr.
     // Advance head pointer only on pop().
     struct alignas(cache_line) Consumer {
-        std::atomic<size_t> head_ptr{0};    // written by consumer, read by producer
-        size_t cached_tail{0};              // local snapshot of tail, refresh from producer when queue appears empty
+        std::atomic<uint64_t> head_ptr{0};    // written by consumer, read by producer
+        uint64_t cached_tail{0};              // local snapshot of tail, refresh from producer when queue appears empty
     };
 
     // Owned exclusively by the producer thread.
     // Full when next(tail_ptr) == head_ptr (wasted-slot scheme).
     // Writes to tail_ptr (back of queue), advancing it forward on each push.
     struct alignas(cache_line) Producer {
-        std::atomic<size_t> tail_ptr{0};    // written by producer, read by consumer 
-        size_t cached_head{0};              // local snapshot of head, refrsh from consumer when queue appears full
+        std::atomic<uint64_t> tail_ptr{0};    // written by producer, read by consumer 
+        uint64_t cached_head{0};              // local snapshot of head, refrsh from consumer when queue appears full
     };
 
     struct alignas(cache_line) Queue {
         T* buffer;
-        size_t capacity;
+        uint64_t capacity;
     };
    
     Consumer cons;
