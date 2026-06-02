@@ -84,8 +84,8 @@ public:
         std::pair<bool, uint64_t> ret = try_insert();
 
         if (ret.first) {
-            new (queue.buffer + prod.tail_ptr) T(std::forward<Args>(args)...);
-           // LOG("emplace_back: Inserted at position " << prod.tail_ptr);
+            new (queue.buffer + prod.tail_ptr.load(std::memory_order_acquire)) T(std::forward<Args>(args)...);
+            LOG("emplace_back: Inserted at position " << prod.tail_ptr);
             prod.tail_ptr.store(ret.second, std::memory_order_release);
         }
     }
@@ -98,7 +98,7 @@ public:
         std::pair<bool, uint64_t> ret = try_insert();
 
         if (ret.first) {
-            queue.buffer[prod.tail_ptr] = std::forward<T>(other);
+            queue.buffer[prod.tail_ptr.load(std::memory_order_acquire)] = std::forward<T>(other);
             LOG("push_back: Inserted at position " << prod.tail_ptr);
             prod.tail_ptr.store(ret.second, std::memory_order_release);
         }
@@ -110,7 +110,7 @@ public:
     // Effects:  returns {true, next_tail} if space is available, {false, 0} if full.
     //           next_tail is pre-computed so callers can write first, then store atomically.
     [[nodiscard]] inline std::pair<bool, uint64_t> try_insert() {
-        uint64_t next = prod.tail_ptr + 1;
+        uint64_t next = prod.tail_ptr.load(std::memory_order_relaxed) + 1;
         if (next == queue.capacity) [[unlikely]] {
             next = 0;
         }
@@ -120,7 +120,7 @@ public:
             prod.cached_head = cons.head_ptr.load(std::memory_order_acquire);
 
             if (next == prod.cached_head) {
-                //LOG("emplace_back: Could not insert (Full queue).");
+                LOG("emplace_back: Could not insert (Full queue).");
                 return {false, 0};
             }
         }
@@ -136,7 +136,7 @@ public:
         if (!peek()) {
             return nullptr;
         }
-        return queue.buffer + cons.head_ptr;
+        return queue.buffer + cons.head_ptr.load(std::memory_order_acquire);
     }
 
 
@@ -145,7 +145,7 @@ public:
     // Effects:  no-op if queue is empty.
     void pop() {
         if (top()) {
-            uint64_t head = cons.head_ptr;
+            uint64_t head = cons.head_ptr.load(std::memory_order_acquire);
             (queue.buffer + head)->~T();
             std::memset(queue.buffer + head, 0, sizeof(T));
 
@@ -163,10 +163,11 @@ public:
     // Modifies: may update cached_tail from prod.tail_ptr if queue appeared empty.
     // Effects:  returns true if at least one element is available to consume.
     [[nodiscard]] bool inline peek() {
-        if (cons.cached_tail == cons.head_ptr) {
+        uint64_t head = cons.head_ptr.load(std::memory_order_acquire);
+        if (cons.cached_tail == head) {
             cons.cached_tail = prod.tail_ptr.load(std::memory_order_acquire);
 
-            if (cons.cached_tail == cons.head_ptr) {
+            if (cons.cached_tail == head) {
                 LOG("peek: Queue is full.");
                 return false;
             }
