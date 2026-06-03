@@ -15,6 +15,7 @@
 
 
 constexpr u_int16_t MAX_LENGTH = 1024;
+constexpr int MAX_TCP_CONNECTIONS = 1024;
 std::string get_interface(const std::string& input) {
     // should convert a string into a interface type
     char buf[MAX_LENGTH];
@@ -99,10 +100,11 @@ auto create_socket(const std::string& t_ip, const std::string& iface, bool is_tc
 
     // Loop until we can find a suitable scoket
     int fd = -1;
-    for (addrinfo* ai = result; ai; ai = ai->ai_next) {
-        fd = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
-        if (fd == -1) continue;
-        
+    addrinfo* ai;
+    for (ai = result; ai; ai = ai->ai_next) {
+        if (fd = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol) != -1) {
+            break;
+        }
     }
 
     if (fd == -1) {
@@ -110,5 +112,41 @@ auto create_socket(const std::string& t_ip, const std::string& iface, bool is_tc
         return -1;
     }
 
+    // TODO: does this need to be in loop, should we do this for each address that works, or just 1 of them
+    // set it to non-blocking and disable nagles on tcp
+    if (!would_block) {
+        // set non-blocking regardless of tcp or UDP
+        if (!set_nonblocking(fd)) {
+            LOG("create_socket: Could not set fd as non-blocking");
+            return -1;
+        }
+        if (is_tcp) {
+            if (!disable_nagles(fd)) {
+                LOG("create_socket: Could not disable nagles on a TCP socket");
+                return -1;
+            }
+        }
+    }
+
+    // decide whether or not to connect, or bind and listen 
+    int one = 1;
+    if (is_server) {
+        // bind this socket to the address and wait for incoming requests
+        if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one)) & bind(fd, ai->ai_addr, ai->ai_addrlen) == -1) {
+            LOG("create_socket: Could not bind socket");
+            return -1;
+        }
+        if (listen(fd, MAX_TCP_CONNECTIONS) == -1) {
+            LOG("create_socket: Could not listen at this socket");
+            return -1;
+        }
+    } else {
+        // client socket, connect it
+        if (connect(fd, ai->ai_addr, ai->ai_addrlen) == -1) {
+            LOG("create_socket: Could not connect socket");
+            return -1;
+        }
+    }
+    // maybe implement time to live functionality
 }
 
