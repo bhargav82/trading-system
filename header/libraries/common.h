@@ -36,3 +36,7 @@ struct SimpleObj {
         return this->val == other.val && this->str == other.str;
     }
 };
+
+size_t get_timestamp_us() {
+    return 1;
+}
