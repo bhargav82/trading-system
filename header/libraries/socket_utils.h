@@ -13,8 +13,7 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <cctype>
-
-
+#include <arpa/inet.h>
 
 // files
 #include "log.h"
@@ -26,28 +25,26 @@ constexpr int MAX_TCP_CONNECTIONS = 1024;
 
 
 // TODO: finish socket utilities, tcp_socket class
-//       create_socket is not done rework it, get_interface is not done, setup multicast udp not done
+//       setup multicast udp not done
 
 // functions
 
-// create the socket based on whether its a client or server, and if its tcp or udp
-auto create_socket(const std::string& t_ip, const std::string& iface, bool is_tcp, bool is_server, int port) {
-    const auto ip = t_ip.empty() ? get_interface(iface) : t_ip;
-    
+auto create_socket(const std::string& t_ip, const std::string& iface, int port, bool is_server, bool is_tcp) {
+    const auto ip = t_ip.empty() ? get_interface_ip(iface) : t_ip;
     addrinfo hints;
     memset(&hints, 0, sizeof(hints));
     addrinfo* result = nullptr;
 
-    
-    hints.ai_flags |= is_server ? AI_PASSIVE : 0;
+    hints.ai_flags = is_server ? AI_PASSIVE : 0;
     hints.ai_flags |= AI_NUMERICSERV;
     if (std::isdigit(ip[0])) {
         hints.ai_flags |= AI_NUMERICHOST;
     }
     hints.ai_family = AF_INET;
-    hints.ai_socktype = is_tcp ? SOCK_STREAM : SOCK_DGRAM;
+    hints.ai_socktype = is_tcp ? SOCK_STREAM : SOCK_DGRAM; 
     hints.ai_protocol = is_tcp ? IPPROTO_TCP : IPPROTO_UDP;
 
+    // resolves hostname and service name and builds linked list
     if (int rc = getaddrinfo(ip.c_str(), std::to_string(port).c_str(), &hints, &result) != 0) {
         fprintf(stderr, "create_socket: Error in getaddrinfo: %s\n", gai_strerror(rc));
         return -1;
@@ -66,9 +63,6 @@ auto create_socket(const std::string& t_ip, const std::string& iface, bool is_tc
         LOG("create_socket: Could not find any compatiable addresses to connect a socket to");
         return -1;
     }
-
-    // TODO: does this need to be in loop, should we do this for each address that works, or just 1 of them
-    // set it to non-blocking and disable nagles on tcp
     if (!would_block) {
         // set non-blocking regardless of tcp or UDP
         if (!set_nonblocking(fd)) {
@@ -102,15 +96,15 @@ auto create_socket(const std::string& t_ip, const std::string& iface, bool is_tc
             return -1;
         }
     }
-    // maybe implement time to live functionality
-
+    
     return fd;
 }
 
 
-// helper functions
-// get the interface from a string
-std::string get_interface(const std::string& input) {
+
+// Converts a network interface name into IP address string
+auto get_interface_ip(const std::string& iface) {
+    // need to walk through the linked list of all network interfaces and finds the one matching the name and extracts IP
     // should convert a string into a interface type
     char buf[MAX_LENGTH];
     ifaddrs *ifap;
@@ -118,11 +112,23 @@ std::string get_interface(const std::string& input) {
     // ifaddr is a struct that has interface name, ip address, network mask, and broadcast system
     if (getifaddrs(&ifap) == -1){
         LOG("getifaddrs: could not get network IP addresses");
+        exit(EXIT_FAILURE);
     }
     // use getifaddrs, traverse through linked structure until you find it (use strmcp)
-    //TODO:
+    
     for (ifaddrs* ifa = ifap; ifa != NULL; ifa = ifa->ifa_next) {
-
+        if (ifa->ifa_addr == NULL) {
+            continue;
+        }
+        int family = ifa->ifa_addr->sa_family;
+        if (family == AF_INET && ifa->ifa_name == iface) {
+            int s = getnameinfo(ifa->ifa_addr, sizeof(sockaddr_in), buf, sizeof(MAX_LENGTH), NULL, 0, NI_NUMERICHOST);
+            if (s == -1) {
+                LOG("getnameinfo: could not get IP from name");
+                exit(EXIT_FAILURE);
+            }
+            break;
+        }
     }   
 
     free(ifap);
@@ -134,7 +140,7 @@ auto set_nonblocking(int fd) {
     // fcntl manipulates flags of a file, F_GETFL returns file flags
     int flags = fcntl(fd, F_GETFL, 0);
     if (flags == -1) {
-        LOG("set_nonblocking: Unable to set " << fd << " as nonblocking.");
+        LOG("set_nonblocking: could not get flags.");
         return false;
     }
     // TODO: Check if socket is already nonblocking
@@ -144,11 +150,10 @@ auto set_nonblocking(int fd) {
 
 // disable nagles for TCP sockets
 auto disable_nagles(int fd) {
-    // optval = 1 means modify, 0 means disable
     int optval = 1;
     // setsockopt sets option flag (TCP_NODELAY) for fd
     if ((setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, reinterpret_cast<void*>(&optval), sizeof(optval)) == -1)) {
-        LOG("disable_nagles: Unable to disable nagle's algorithm on " << fd);
+        LOG("disable_nagles: Unable to disable nagle's algorithm on");
         return false;
     }
 }
@@ -159,7 +164,7 @@ auto would_block() {
        (operation should be retried later); connect(2) will return
        EINPROGRESS error.  The user can then wait for various events via
        poll(2) or select(2).*/
-    return (errno == EAGAIN || errno == EINPROGRESS);
+    return (errno == EWOULDBLOCK || errno == EINPROGRESS);
 }
 
 
@@ -171,8 +176,9 @@ auto set_timestamp(int fd) {
     return (setsockopt(fd, SOL_SOCKET, SO_TIMESTAMP, reinterpret_cast<void*>(&optval), sizeof(optval)) == -1);
 }
 
+
 // send data over multicast udp to all subscribed clients
-int setup_multicast_client(const char* group, int fd) { 
+int setup_multicast_client(const char* group, int fd, int port) { 
     // pass in a group to set up multicast udp to
     // clients will subscribe to this ip address and receive data sent over this group ip address
 
@@ -182,6 +188,18 @@ int setup_multicast_client(const char* group, int fd) {
     int one = 1;
     if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one)) == -1) {
         LOG("setup_multicast: Could not set sock");
+        return -1;
+    }
+
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(port);
+    addr.sin_addr.s_addr = htonl(INADDR_ANY);
+
+    // must bind so this socket gets the data
+    if (bind(fd, (sockaddr*)&addr, sizeof(addr)) == -1) {
+        LOG("setup_multicast: bind failed");
+        return -1;
     }
 
     ip_mreq mreq;
@@ -193,6 +211,16 @@ int setup_multicast_client(const char* group, int fd) {
     // joins a multicast group; for clients
     if (setsockopt(fd, IPPROTO_IP, IP_ADD_MEMBERSHIP, &mreq, sizeof(mreq)) == -1) {
         LOG("setup_multicast: Could not add membership to IP group");
+        return -1;
     }
 
+    return 0; // success
 }
+
+
+
+
+
+
+
+
