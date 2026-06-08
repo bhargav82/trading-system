@@ -4,6 +4,10 @@
 #include "common.h"
 #include "order.h"
 
+
+// NEED TO MAKE A SOCKET WRAPPER FOR A CLIENT SOCKET AND A SERVER SOCKET
+
+
 // TODO: decide on an appropriate buffer size --> buffer size determines how much data can be in flight, 
 // problem is bdp (figure out round trip and link access), consider tuning if dropping packets
 // Implement get_timestamp_us
@@ -24,9 +28,9 @@ public:
         
     }
 
-    void connect(const std::string& t_ip, const std::string& iface, int port) {
+    void connect(const std::string& t_ip, const std::string& iface, int port, bool is_server) {
         fd = -1;
-        fd = create_socket(t_ip, iface, true, false, port);
+        fd = create_socket(t_ip, iface, port, is_server, true);
         if (fd == -1) {
             LOG("Could not make a TCP socket");
         }
