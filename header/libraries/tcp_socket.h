@@ -6,6 +6,7 @@
 
 
 
+
 // TODO: decide on an appropriate buffer size (batch_size) --> buffer size determines how much data can be in flight, also MSG_SIZE
 // problem is bdp (figure out round trip and link access), consider tuning if dropping packets
 // Implement get_timestamp_us
@@ -20,6 +21,12 @@ public:
     TCPSocket() {
         send_buffer = new char[BATCH_SIZE];
         recv_buffer = new char[BATCH_SIZE];
+    }
+
+    ~TCPSocket() {
+        close(fd);
+        delete[] send_buffer;
+        delete[] recv_buffer;
     }
 
     // Create a socket, create_socket handles non-blocking, nagles algorithm, and connect/bind for client/server
@@ -129,5 +136,15 @@ private:
     size_t recv_buf_pos = 0;
     bool recv_disconnected = true;
 
+};
+
+
+class TCPServer {
+    TCPServer() {
+        // create an epollfd
+
+    }
+private:
+    int epfd;
 };
 
