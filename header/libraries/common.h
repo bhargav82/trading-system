@@ -4,6 +4,7 @@
 #include <string>
 
 
+// set global variables
 constexpr size_t LOG_QUEUE_SIZE = 8 * 1024 * 1024;
 constexpr size_t ME_MAX_TICKERS = 8;
 constexpr size_t ME_MAX_CLIENT_UPDATES = 256 * 1024;
@@ -12,40 +13,40 @@ constexpr size_t ME_MAX_NUM_CLIENTS = 256;
 constexpr size_t ME_MAX_ORDER_IDS = 1024 * 1024;
 constexpr size_t ME_MAX_PRICE_LEVELS = 256;
 
-struct Object {
-    int val;
-    std::string str;
+// struct Object {
+//     int val;
+//     std::string str;
 
-    Object() = delete;
-    Object(int v, std::string s) : val(v), str(s) {};
-    void print() {
-        std::cout << this->val << " " << this->str << std::endl;
-    }
+//     Object() = delete;
+//     Object(int v, std::string s) : val(v), str(s) {};
+//     void print() {
+//         std::cout << this->val << " " << this->str << std::endl;
+//     }
 
-    bool operator==(const Object& other) const {
-        return this->val == other.val && this->str == other.str;
-    }
-    friend std::ostream& operator<<(std::ostream& os, const Object& obj) {
-        return os << obj.val << " " << obj.str << "\n";
-    }
-};
+//     bool operator==(const Object& other) const {
+//         return this->val == other.val && this->str == other.str;
+//     }
+//     friend std::ostream& operator<<(std::ostream& os, const Object& obj) {
+//         return os << obj.val << " " << obj.str << "\n";
+//     }
+// };
 
 
 
-struct SimpleObj {
-    int val;
-    std::string str;
+// struct SimpleObj {
+//     int val;
+//     std::string str;
 
-    SimpleObj() = default;
-    SimpleObj(int v, std::string s) : val(v), str(s) {};
-    friend std::ostream& operator<<(std::ostream& os, const SimpleObj& obj) {
-        return os << obj.val << " " << obj.str << "\n";
-    }
+//     SimpleObj() = default;
+//     SimpleObj(int v, std::string s) : val(v), str(s) {};
+//     friend std::ostream& operator<<(std::ostream& os, const SimpleObj& obj) {
+//         return os << obj.val << " " << obj.str << "\n";
+//     }
 
-    bool operator==(const SimpleObj& other) const {
-        return this->val == other.val && this->str == other.str;
-    }
-};
+//     bool operator==(const SimpleObj& other) const {
+//         return this->val == other.val && this->str == other.str;
+//     }
+// };
 
 size_t get_timestamp_us() {
     return 1;
@@ -168,35 +169,28 @@ struct ClientResponse {
 
 struct OrdersUpdate {
     uint64_t market_order_id; // id of the market order that is finished
-    uint64_t qty_filled;
-    uint64_t qtr_remaining;   // data needed to update clients match book
+    uint32_t qty_filled;
+    uint32_t qtr_remaining;   // data needed to update clients match book
     uint32_t price;           // price order was matched at
     Side side;
     UpdateType ut;    // so client knows whether it was a new, a cancelled
 };
 
 
+// Comes from client request
 struct SellOrder {
-    uint64_t qty;
-    uint64_t time_placed;
+    SellOrder* next;
+    uint64_t time_placed; // fill in when hardstamping the packet in the nic
     uint64_t client_id;
+    uint32_t qty;
     uint32_t price;
+    uint32_t ticker_id; // not sure if this is even needed, since we get ticker from client request to look up the book
 
-    bool operator<(const SellOrder& other) const {
-        if (this->price == other.price) [[unlikey]] {
-            if (this->qty == other.qty) [[unlikey]] {
-                return this->
-            }
-
-            // return true -> bubble up larger qty
-            return this->qty > other.qty;
-        }
-        
-        // if false -> bubble up child (other)
-        return this->price < other.price;
-    }
+    SellOrder() = delete;
+    SellOrder(uint64_t client_id_, uint64_t qty_, uint32_t price_, uint32_t ticker_id_) : client_id(client_id_), qty(qty_), price(price_), ticker_id(ticker_id_), next(nullptr) {};
 };
 
+// comes from client request
 struct BuyOrder {
 
 

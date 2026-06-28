@@ -43,7 +43,7 @@ public:
         memset(buffer, 0, n);
         is_free_list.resize(n, true);
     };
-    // [] [] [] [] []
+    
 
     // don't allow any other access
     MemoryPoolHeap() = delete;
