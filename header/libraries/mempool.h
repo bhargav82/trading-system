@@ -78,7 +78,7 @@ public:
     }
 
     
-    void destruct(const T* t_) noexcept {
+    void destruct(T* t_) noexcept {
         // 1. Find the index, by subtracting pointer from state (std::byte so need to device by sizeof(T))
         size_t t_index = t_ - buffer;
         

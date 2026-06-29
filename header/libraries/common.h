@@ -70,6 +70,8 @@ enum class Side : int8_t {
     BUY = 1,
     SELL = -1
 };
+
+
 inline std::string sideToString(Side& side) {
 switch (side) {
     case Side::BUY:
@@ -189,7 +191,7 @@ struct Order {
     Side side;
 
     Order() = delete;
-    Order(Order* n_, Order* prev_, uint64_t c_id_, uint64_t q_, uint64_t p_, Side s_) : next(n_), prev(prev_) client_id(c_id_), qty(q_), price(p_), side(s_) {}
+    Order(Order* n_, Order* prev_, uint64_t c_id_, uint64_t q_, uint64_t p_, Side s_) : next(n_), prev(prev_), client_id(c_id_), qty(q_), price(p_), side(s_) {}
 
 };
 

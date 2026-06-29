@@ -141,12 +141,11 @@ public:
 
     // can get o(1) access to the order by using the market_order_id, on insert, 
 
-    void insert_buy(Order& buy_order) {
-        // first compare against sell orders 
-        if (buy_order.price < sell_book.bestPrice) {
-            // in this scenario, this new buy order cannot match with any sells
-        } else {
-            // match with sell order, may have partial matches or full matches
+    // should not be order object, instead convert
+    void insert_buy(ClientRequest& buy_order) {
+        // first compare with sell order, may have partial matches or full matches
+        if (buy_order.price >= sell_book.bestPrice) {
+            find_matching_sells(buy_order);
         }
 
 
@@ -155,15 +154,55 @@ public:
         if (buy_order.qty > 0) {
             // insert it into the correct price level 
             // call construct so that memory pool can put it in next free space but still has pointers
-            for (Order* curr = buy_book.limits[buy_order.price].first_ptr(); curr != nullptr; curr = curr->next) {
+            Order* front = buy_book.limits[buy_order.price].first_ptr();
 
+            // find the first one that is lower than it, what if front = nullptr, then insert and update 
+            while (front && front->price >= buy_order.price) {
+                front = front->next;
             }
+
+            // front points to the place we need to insert it into, constructs a buy order as well
+            Order* curr = buy_book.limits[buy_order.price].construct(front, front->prev, buy_order.client_id, buy_order.qty, buy_order.price, Side::BUY);
+            
+            front->prev->next = curr;
+            front->prev = curr;
         }
-    };
-
-    void match_sells(Order& ) {
-
     }
+
+  
+   
+    void find_matching_sells(ClientRequest& buy_order) {
+        // go from best sell, or go from matching price, go from best sell 
+        while (buy_order.price > sell_book.bestPrice || buy_order.qty == 0) {
+
+            
+            // update best price and buy order quantity
+        }
+    }
+
+    // use this for cancellatations and modifications
+    Order* get(uint64_t market_order_id) {
+        return order_map[market_order_id];
+    }
+
+
+    void cancel(Order& cancel_order) {
+        Order* prev = cancel_order.prev;
+        Order* next = cancel_order.next;
+        prev->next = next;
+        next->prev = prev;
+        
+        // call destructor on this object
+        if (cancel_order.side == Side::BUY) {
+            buy_book.limits[cancel_order.price].destruct(&cancel_order);
+        } else if (cancel_order.side == Side::SELL) {
+            sell_book.limits[cancel_order.price].destruct(&cancel_order);
+        } else {
+            assert("Cancelling order that doesn't have a side");
+        }
+    }
+
+
 
 private:
    
