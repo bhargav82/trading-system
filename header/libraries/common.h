@@ -178,22 +178,21 @@ struct OrdersUpdate {
 
 
 // Comes from client request
-struct SellOrder {
-    SellOrder* next;
+struct Order {
+    Order* next;
+    Order* prev;
     uint64_t time_placed; // fill in when hardstamping the packet in the nic
     uint64_t client_id;
     uint32_t qty;
     uint32_t price;
     uint32_t ticker_id; // not sure if this is even needed, since we get ticker from client request to look up the book
+    Side side;
 
-    SellOrder() = delete;
-    SellOrder(uint64_t client_id_, uint64_t qty_, uint32_t price_, uint32_t ticker_id_) : client_id(client_id_), qty(qty_), price(price_), ticker_id(ticker_id_), next(nullptr) {};
-};
-
-// comes from client request
-struct BuyOrder {
-
+    Order() = delete;
+    Order(Order* n_, Order* prev_, uint64_t c_id_, uint64_t q_, uint64_t p_, Side s_) : next(n_), prev(prev_) client_id(c_id_), qty(q_), price(p_), side(s_) {}
 
 };
+
+
 
 #pragma pack(pop)

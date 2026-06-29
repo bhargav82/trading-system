@@ -20,6 +20,7 @@ private:
     std::vector<bool> is_free_list;
     size_t next_free;
     size_t sz;
+    T* first = nullptr;
 
     void update_next_free() noexcept {
         size_t current_free_idx = next_free;
@@ -59,6 +60,10 @@ public:
         // 1. Find the address of the next free location
         T* insert_loc = buffer + next_free;
 
+        if (insert_loc == buffer) [[unlikely]] {
+            first = buffer;
+        } 
+
         // 2. construct the T object usign the forwarded args, use placement new to construct the object in place found above
         T* t_ = new (insert_loc) T(std::forward<Args>(args)...);
 
@@ -79,12 +84,21 @@ public:
         
         // 2. Assert index is valid
         assert(t_index >= 0 && t_index < sz && "t_index is out of range");
-
+        if (t_index + buffer == first) {
+            first = (next_free + 1) % sz;
+        }
         // 3. just need to update is_free of that index and destroy object in that space
         assert(is_free_list[t_index] == false && "t_index is not currently used");
         (buffer + t_index * sizeof(T))->~T();
         is_free_list[t_index] = true;
     }
+
+    
+    T* first_ptr() noexcept {
+        // return a pointer to the first element in the queue
+        return first;
+    }
+
 
 
     ~MemoryPoolHeap() {
