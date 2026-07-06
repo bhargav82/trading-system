@@ -4,6 +4,7 @@
 #include "mempool.h"
 #include <atomic>
 #include <array>
+#include <limits>
 
 typedef SPSCQueue<ClientRequest> ClientRequestQueue; // receive orders from order server
 typedef SPSCQueue<ClientResponse> ClientResponseQueue; // send confirmation messages (or failure) to order server
@@ -33,6 +34,14 @@ public:
         
     }
 
+    void cancel_order(market_order_id order_id) {
+        Order* order = order_map[order_id];
+        Book b = books[order->ticker_id];
+        if ()
+        
+        
+    }
+
 
 private:
 
@@ -41,7 +50,9 @@ private:
     ClientResponseQueue client_response_queue; // producer of response messages
 
     // make own lock free hash tables
-    std::unordered_map<ticker_id, Book> 
+    std::unordered_map<ticker_id, Book> books;
+
+    std::unordered_map<market_order_id, Order*> order_map; // used for o(1) cancel/modification
 };
 
 /*
@@ -123,13 +134,67 @@ The order_map sits at the Book level rather than globally so order IDs only need
 
 */
 
+template <typename T>
+class PriceLevel {
+public:
+    explicit PriceLevel(size_t level_size) : orders(level_size) {
+        head = new Order{nullptr, nullptr, 0, 0, 0, 0};
+        tail = new Order{nullptr, nullptr, 0, 0, 0, 0};
 
+        head->next = tail;
+        tail->prev = head;
+        
+    };
+
+    
+    void add_order(T* new_order) {
+        // just add to the end if possible, construct this object with its values before hand
+        try {
+            tail->prev->next = orders.construct(tail, tail->prev, new_order->client_id, new_order->qtr, new_order->price, new_order->side);
+            tail->prev = tail->prev->next;
+        } catch (const std::runtime_error& e) {
+            throw; // propagate error up
+        }
+    }
+
+    
+    T* top() {
+        // Make sure to check that this is not nullptr when calling top
+        return head->next;
+    }
+
+    void cancel_order(T* cancelled_order) {
+        if (!cancelled_order) {
+            throw std::runtime_error("matching_engine: Order is null");
+        }
+
+        // swap pointers, call destructor
+        cancelled_order->prev->next = cancelled_order->next;
+        cancelled_order->next->prev = cancelled_order->prev;
+
+        orders.destruct(cancelled_order);
+        // make sure to delete key from global map
+    }
+
+
+
+private:
+    MemoryPoolHeap<T> orders;
+    // dummy pointers, head and tail will never be actual order objects just pointers to them
+    T* head;
+    T* tail;
+
+};
 
 template <typename T>
-struct HalfBook {
+class HalfBook {
+public:
+
+
+private:
     // Keep an array of memory pool heap of T objects
-    std::array<MemoryPoolHeap<T>, 1024> limits;
-    size_t bestPrice; // Best Price is the first non-empty index
+    std::array<PriceLevel<T>, 1024> limits;
+    size_t bestPrice = std::numeric_limits<size_t>::max(); // Best Price is the first non-empty index
 };
 
 
@@ -141,8 +206,8 @@ public:
 
     // can get o(1) access to the order by using the market_order_id, on insert, 
 
-    // should not be order object, instead convert
-    void insert_buy(ClientRequest& buy_order) {
+    // should not be order object, instead convert TODO:
+    void insert_buy(Order& buy_order) {
         // first compare with sell order, may have partial matches or full matches
         if (buy_order.price >= sell_book.bestPrice) {
             find_matching_sells(buy_order);
@@ -150,7 +215,6 @@ public:
 
 
         // with whatever is remaining, insert it into the function
-
         if (buy_order.qty > 0) {
             // insert it into the correct price level 
             // call construct so that memory pool can put it in next free space but still has pointers
@@ -161,24 +225,41 @@ public:
                 front = front->next;
             }
 
-            // front points to the place we need to insert it into, constructs a buy order as well
+            // front points to the place we need to insert it into, constructs a buy order as well, [0, 1023]
             Order* curr = buy_book.limits[buy_order.price].construct(front, front->prev, buy_order.client_id, buy_order.qty, buy_order.price, Side::BUY);
             
             front->prev->next = curr;
             front->prev = curr;
+
+            if (buy_order.price < buy_book.bestPrice) {
+                buy_book.bestPrice = buy_order.price;
+            }
         }
     }
 
   
    
-    void find_matching_sells(ClientRequest& buy_order) {
+    void find_matching_sells(Order& buy_order) {
         // go from best sell, or go from matching price, go from best sell 
-        while (buy_order.price > sell_book.bestPrice || buy_order.qty == 0) {
+        size_t sell_index = sell_book.bestPrice;
+        Order* sell_order = sell_book.limits[sell_book.bestPrice].first_ptr();
 
-            
-            // update best price and buy order quantity
+        bool out_of_sells = (sell_index == 1023 && !sell_order);
+        while (!out_of_sells && buy_order.qty > 0 && buy_order.price >= sell_order->price) {
+            // keep making sells as long as there are sells, the price of buy is greater than price of sell order and quantity of buy doesn't get lost
+            make_trade(buy_order, *sell_order);
         }
+        
     }
+
+    void make_trade(Order& buy_order, Order& sell_order) {
+
+    }
+
+
+
+    void insert_sell() {};
+    void find_matching_buys() {};
 
     // use this for cancellatations and modifications
     Order* get(uint64_t market_order_id) {
@@ -186,21 +267,27 @@ public:
     }
 
 
-    void cancel(Order& cancel_order) {
-        Order* prev = cancel_order.prev;
-        Order* next = cancel_order.next;
+    void cancel(uint64_t market_order_id) {
+        Order* cancel_order = order_map[market_order_id];
+        Order* prev = cancel_order->prev;
+        Order* next = cancel_order->next;
         prev->next = next;
         next->prev = prev;
         
         // call destructor on this object
-        if (cancel_order.side == Side::BUY) {
-            buy_book.limits[cancel_order.price].destruct(&cancel_order);
-        } else if (cancel_order.side == Side::SELL) {
-            sell_book.limits[cancel_order.price].destruct(&cancel_order);
+        if (cancel_order->side == Side::BUY) {
+            buy_book.limits[cancel_order->price].destruct(cancel_order);
+        } else if (cancel_order->side == Side::SELL) {
+            sell_book.limits[cancel_order->price].destruct(cancel_order);
         } else {
             assert("Cancelling order that doesn't have a side");
         }
+    
+        order_map.erase(market_order_id);
+    
     }
+
+    // how should modify work
 
 
 
@@ -209,6 +296,5 @@ private:
     HalfBook<Order> sell_book;
     HalfBook<Order> buy_book;
 
-    std::unordered_map<market_order_id, Order*> order_map; // used for o(1) cancel/modification
 
 };
