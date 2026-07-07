@@ -15,124 +15,45 @@ typedef uint64_t market_order_id;
 std::atomic<market_order_id> order_id = 0;
 
 
-
-// ENSURE THAT THE MEMORY HEAP IS CORRECT
 class MatchingEngine {
 public:
 
-    // requires a collection of sell and buy orders -> should it be a hashmap of ticker_ids, and then a linked list of diff tickers and inside each is a heap of orders, ordered by best price, then 
-    // use a hashmap where each index is a ticker_id : heap of orders
-    // for each ticker -> maintain an order boook (limit prices from $1-$1025)
-
-    void handle_order(ClientRequest& incoming_order) {
-        // Figure out what side it is
-        // Check if there is any crossing
-        //      if there a perfect match -> don't insert this in remove the best other, and send a message
-        //      if there is a partial match -> insert the partial in, remove the other and send a message
-        //      if there are multiple matches -> dont insert this in, remove all others, create messages for all
-        
-        
+    // before calling this, make sure that the request is between 1-1024
+    void add_order(ClientRequest* client_req) {
+        try {
+            books[client_req->ticker_id]->insert_order(client_req);
+        } catch (const std::runtime_error& e) {
+            std::cerr << e.what() << std::endl;
+            std::abort; // don't know if we need this abort
+        }
     }
 
-    void cancel_order(market_order_id order_id) {
-        Order* order = order_map[order_id];
-        Book b = books[order->ticker_id];
-        if ()
-        
-        
+    void make_trades(ClientRequest& client_req) {
+
     }
 
+    // user needs to put in the market_order_id -> should probably be some form of checking, maybe handle upstream 
+    void cancel_order(uint64_t market_order_id) {
+        Order* order = order_map[market_order_id];
+        try {
+            books[order->ticker_id]->cancel_order(order);
+            order_map.erase(market_order_id);
+        } catch (const std::runtime_error& e) {
+            std::cerr << e.what() << std::endl;
+            std::abort(); // probably don't need to abort since we are just throwing error
+        }
+    }
 
 private:
-
     OrdersUpdateQueue orders_update_queue; // producer of successful orders (or any updates)
     ClientRequestQueue client_request_queue; // consumer of order messages
     ClientResponseQueue client_response_queue; // producer of response messages
 
     // make own lock free hash tables
-    std::unordered_map<ticker_id, Book> books;
-
+    std::unordered_map<ticker_id, Book*> books;
     std::unordered_map<market_order_id, Order*> order_map; // used for o(1) cancel/modification
 };
 
-/*
-per order:
-    order_id: identify orders
-    ticket_id: identify trading instrument
-    client_id: identify which client
-    price: prices of instruments
-    qty: hold quantites of instruments
-    priority: position in a FIFO queue at price level
-    side: identify buy or sell side in an order
-
-
-*/
-
-
-/*
-    book class needs to maintain an array of orders (either sell or buy) -> each index should be a pointer to a sell/buy order
-
-
-
-    use mempool to get heap access -> need since stack will be too small for lots of tickers and their books
-
-    on a buy order --> what needs to happen:
-        buy order is sent in from order server
-        matching engine looks up the order by ticker 
-        inserts it into the right position 
-
-    two options:
-        when an order comes in --> inserted into the right place, then separate thread polls checking for crossings
-WINNER: when an order comes in --> check for matches, then insert if necessary
-
-
-Engine
-└── array[ticker_id] → Book
-
-Book
-├── array[1..1025] → PriceLevel  (buy side)
-├── array[1..1025] → PriceLevel  (sell side)
-├── best_bid: u16
-├── best_ask: u16
-└── order_map: HashMap<order_id, *OrderNode>
-
-PriceLevel
-├── head: *OrderNode
-├── tail: *OrderNode
-└── total_qty: u64
-
-OrderNode
-├── order_id: u64
-├── qty: u64
-├── price: u16
-├── side: enum { Buy, Sell }
-├── prev: *OrderNode
-└── next: *OrderNode
-Insert
-
-Index into array[price] — O(1)
-Append OrderNode to tail of doubly linked list — O(1)
-Update total_qty — O(1)
-Insert into order_map — O(1)
-Update best_bid / best_ask if needed — O(1)
-
-Cancel
-
-Lookup order_map[order_id] → get *OrderNode — O(1)
-Unlink via prev/next — O(1)
-Decrement array[order.price].total_qty — O(1)
-Remove from order_map — O(1)
-If level is now empty, scan inward to update best_bid/best_ask — O(spread) ≈ O(1) in practice
-Return node to arena free list — O(1)
-
-Modify
-
-If only qty changes (downward) → just update qty on the node in place, no queue repositioning — O(1)
-If price changes, or qty increases (loses queue priority) → cancel + re-insert — O(1)
-
-The order_map sits at the Book level rather than globally so order IDs only need to be unique per ticker, which is typically how exchanges define them anyway.
-
-*/
 
 template <typename T>
 class PriceLevel {
@@ -145,37 +66,35 @@ public:
         tail->prev = head;
         
     };
-
     
-    void add_order(T* new_order) {
+    void add_order(ClientRequest* new_order) {
         // just add to the end if possible, construct this object with its values before hand
         try {
-            tail->prev->next = orders.construct(tail, tail->prev, new_order->client_id, new_order->qtr, new_order->price, new_order->side);
+            // constructs an order since memory pool only holds Order objects
+            tail->prev->next = orders.construct(tail, tail->prev, new_order->client_id, new_order->qty, new_order->price, new_order->side);
             tail->prev = tail->prev->next;
         } catch (const std::runtime_error& e) {
             throw; // propagate error up
         }
     }
 
-    
-    T* top() {
-        // Make sure to check that this is not nullptr when calling top
-        return head->next;
-    }
-
-    void cancel_order(T* cancelled_order) {
-        if (!cancelled_order) {
+    void remove_order(T* remove_order) {
+        if (!remove_order) {
             throw std::runtime_error("matching_engine: Order is null");
         }
 
         // swap pointers, call destructor
-        cancelled_order->prev->next = cancelled_order->next;
-        cancelled_order->next->prev = cancelled_order->prev;
+        remove_order->prev->next = remove_order->next;
+        remove_order->next->prev = remove_order->prev;
 
-        orders.destruct(cancelled_order);
+        orders.destruct(remove_order);
         // make sure to delete key from global map
     }
 
+    T* top() {
+        // Make sure to check that this is not nullptr when calling top
+        return head->next;
+    }
 
 
 private:
@@ -183,19 +102,34 @@ private:
     // dummy pointers, head and tail will never be actual order objects just pointers to them
     T* head;
     T* tail;
-
 };
 
-template <typename T>
+
 class HalfBook {
 public:
 
+    void insert_order(ClientRequest* order) {
+        // add the order to the level it belongs to
+        limits[order->price - 1].add_order(order);
+    }
+
+    void remove_order(Order* order) {
+        limits[order->price - 1].remove_order(order);
+    }
+
+    Order* top(uint32_t price) {
+        return limits[price - 1].top();
+    }
+
+    size_t size() {
+        return limits.size();
+    }
 
 private:
     // Keep an array of memory pool heap of T objects
-    std::array<PriceLevel<T>, 1024> limits;
-    size_t bestPrice = std::numeric_limits<size_t>::max(); // Best Price is the first non-empty index
+    std::array<PriceLevel<Order>, 1024> limits;
 };
+
 
 
 // Consider using a dispatch table to avoid branches
@@ -203,98 +137,52 @@ class Book {
 public:
     
     // operations: insert, cancel, modify, check for crossing
-
-    // can get o(1) access to the order by using the market_order_id, on insert, 
-
-    // should not be order object, instead convert TODO:
-    void insert_buy(Order& buy_order) {
-        // first compare with sell order, may have partial matches or full matches
-        if (buy_order.price >= sell_book.bestPrice) {
-            find_matching_sells(buy_order);
-        }
-
-
-        // with whatever is remaining, insert it into the function
-        if (buy_order.qty > 0) {
-            // insert it into the correct price level 
-            // call construct so that memory pool can put it in next free space but still has pointers
-            Order* front = buy_book.limits[buy_order.price].first_ptr();
-
-            // find the first one that is lower than it, what if front = nullptr, then insert and update 
-            while (front && front->price >= buy_order.price) {
-                front = front->next;
+    void insert_order(ClientRequest* order) {
+        if (order->side == Side::BUY) {
+            buy_book.insert_order(order);
+            // higher prices are better -> can make more matches
+            if (order->price > bestBuy) {
+                bestBuy = order->price;
             }
-
-            // front points to the place we need to insert it into, constructs a buy order as well, [0, 1023]
-            Order* curr = buy_book.limits[buy_order.price].construct(front, front->prev, buy_order.client_id, buy_order.qty, buy_order.price, Side::BUY);
-            
-            front->prev->next = curr;
-            front->prev = curr;
-
-            if (buy_order.price < buy_book.bestPrice) {
-                buy_book.bestPrice = buy_order.price;
+        } else {
+            sell_book.insert_order(order);
+            if (order->price < bestSell) {
+                bestSell = order->price;
             }
         }
     }
 
-  
-   
-    void find_matching_sells(Order& buy_order) {
-        // go from best sell, or go from matching price, go from best sell 
-        size_t sell_index = sell_book.bestPrice;
-        Order* sell_order = sell_book.limits[sell_book.bestPrice].first_ptr();
-
-        bool out_of_sells = (sell_index == 1023 && !sell_order);
-        while (!out_of_sells && buy_order.qty > 0 && buy_order.price >= sell_order->price) {
-            // keep making sells as long as there are sells, the price of buy is greater than price of sell order and quantity of buy doesn't get lost
-            make_trade(buy_order, *sell_order);
+    void cancel_order(Order* order) {
+        if (order->side == Side::BUY) {
+            buy_book.remove_order(order);
+            // if the current order is the best price, and after we remove it head is the only order in this queue -> must move up until thats not true
+            if (bestBuy == order->price && buy_book.top(order->price)->price == 0) {
+                size_t start = bestBuy;
+                for ( ; start < buy_book.size() && buy_book.top(start)->price == 0; ++start) {};
+                bestBuy = start == 1024 ? 0 : start;
+            }
+        } else {
+            sell_book.remove_order(order);
+            // same as above but go down in prices for sells, the best sell is someone selling for 1
+            if (bestSell == order->price && sell_book.top(order->price)->price == 0) {
+                ssize_t start = bestSell;
+                for ( ; start >= 0 && sell_book.top(start)->price == 0; --start) {};
+                bestSell = start == -1 ? std::numeric_limits<size_t>::max() : start;
+            }
         }
-        
     }
+    
 
+    // do handle trades
     void make_trade(Order& buy_order, Order& sell_order) {
 
     }
 
 
-
-    void insert_sell() {};
-    void find_matching_buys() {};
-
-    // use this for cancellatations and modifications
-    Order* get(uint64_t market_order_id) {
-        return order_map[market_order_id];
-    }
-
-
-    void cancel(uint64_t market_order_id) {
-        Order* cancel_order = order_map[market_order_id];
-        Order* prev = cancel_order->prev;
-        Order* next = cancel_order->next;
-        prev->next = next;
-        next->prev = prev;
-        
-        // call destructor on this object
-        if (cancel_order->side == Side::BUY) {
-            buy_book.limits[cancel_order->price].destruct(cancel_order);
-        } else if (cancel_order->side == Side::SELL) {
-            sell_book.limits[cancel_order->price].destruct(cancel_order);
-        } else {
-            assert("Cancelling order that doesn't have a side");
-        }
-    
-        order_map.erase(market_order_id);
-    
-    }
-
-    // how should modify work
-
-
-
 private:
-   
-    HalfBook<Order> sell_book;
-    HalfBook<Order> buy_book;
+    HalfBook sell_book;
+    HalfBook buy_book;
 
-
+    size_t bestBuy = 0;
+    size_t bestSell = std::numeric_limits<size_t>::max();
 };
