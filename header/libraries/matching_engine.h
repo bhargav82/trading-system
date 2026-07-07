@@ -21,7 +21,8 @@ public:
     // before calling this, make sure that the request is between 1-1024
     void add_order(ClientRequest* client_req) {
         try {
-            books[client_req->ticker_id]->insert_order(client_req);
+            Order* inserted_order = books[client_req->ticker_id]->insert_order(client_req);
+            order_map[order_id++] = inserted_order;
         } catch (const std::runtime_error& e) {
             std::cerr << e.what() << std::endl;
             std::abort; // don't know if we need this abort
@@ -67,12 +68,13 @@ public:
         
     };
     
-    void add_order(ClientRequest* new_order) {
+    T* add_order(ClientRequest* new_order) {
         // just add to the end if possible, construct this object with its values before hand
         try {
             // constructs an order since memory pool only holds Order objects
             tail->prev->next = orders.construct(tail, tail->prev, new_order->client_id, new_order->qty, new_order->price, new_order->side);
             tail->prev = tail->prev->next;
+            return tail->prev;
         } catch (const std::runtime_error& e) {
             throw; // propagate error up
         }
@@ -108,9 +110,9 @@ private:
 class HalfBook {
 public:
 
-    void insert_order(ClientRequest* order) {
+    Order* insert_order(ClientRequest* order) {
         // add the order to the level it belongs to
-        limits[order->price - 1].add_order(order);
+        return limits[order->price - 1].add_order(order);
     }
 
     void remove_order(Order* order) {
@@ -137,19 +139,22 @@ class Book {
 public:
     
     // operations: insert, cancel, modify, check for crossing
-    void insert_order(ClientRequest* order) {
+    [[nodiscard]] Order* insert_order(ClientRequest* order) {
+        Order* inserted_order = nullptr;
         if (order->side == Side::BUY) {
-            buy_book.insert_order(order);
+            inserted_order = buy_book.insert_order(order);
             // higher prices are better -> can make more matches
             if (order->price > bestBuy) {
                 bestBuy = order->price;
             }
         } else {
-            sell_book.insert_order(order);
+            inserted_order = sell_book.insert_order(order);
             if (order->price < bestSell) {
                 bestSell = order->price;
             }
         }
+
+        return inserted_order;
     }
 
     void cancel_order(Order* order) {
