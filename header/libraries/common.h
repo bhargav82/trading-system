@@ -183,7 +183,9 @@ struct OrdersUpdate {
 struct Order {
     Order* next;
     Order* prev;
-    uint64_t time_placed; // fill in when hardstamping the packet in the nic
+
+
+    uint64_t market_order_id; // need to fill this somewhere
     uint64_t client_id;
     uint32_t qty;
     uint32_t price;
