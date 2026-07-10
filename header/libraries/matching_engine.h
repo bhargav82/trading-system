@@ -11,8 +11,8 @@ typedef SPSCQueue<ClientResponse> ClientResponseQueue; // send confirmation mess
 typedef SPSCQueue<OrdersUpdate> OrdersUpdateQueue; // send updates on matches 
 
 typedef uint32_t ticker_id;
-typedef uint64_t market_order_id;
-std::atomic<market_order_id> order_id = 0;
+typedef uint64_t market_order;
+std::atomic<market_order> market_order_id = 0;
 
 
 class MatchingEngine {
@@ -22,7 +22,7 @@ public:
     void add_order(ClientRequest* client_req) {
         try {
             Order* inserted_order = books[client_req->ticker_id]->insert_order(client_req);
-            order_map[order_id++] = inserted_order;
+            order_map[market_order_id++] = inserted_order;
         } catch (const std::runtime_error& e) {
             std::cerr << e.what() << std::endl;
             std::abort; // don't know if we need this abort
@@ -57,7 +57,7 @@ private:
 
     // make own lock free hash tables
     std::unordered_map<ticker_id, Book*> books;
-    std::unordered_map<market_order_id, Order*> order_map; // used for o(1) cancel/modification
+    std::unordered_map<market_order, Order*> order_map; // used for o(1) cancel/modification
 };
 
 
@@ -140,10 +140,10 @@ private:
 
 
 // Consider using a dispatch table to avoid branches
+// operations: insert, cancel, modify, check for crossing
 class Book {
 public:
     
-    // operations: insert, cancel, modify, check for crossing
     [[nodiscard]] Order* insert_order(ClientRequest* order) {
         Order* inserted_order = nullptr;
         if (order->side == Side::BUY) {
@@ -183,57 +183,91 @@ public:
     }
     
 
-    // do handle trades, find crossing where buy price >= sell price
-    // first go into the book for the ticker
-        // go into the opposite side
-        // start at the best price for other side
-        // while the prices cross (buy price ≥ sell price) and there is quantity of the new order -> trades can happens
-        // take the min of the both prices (will be sell price) and the min of the quantities
-            // if the min of the quantities equal to the matched order -> this order has been matched, need to add to client response queue and remove from book
-                // continue matching with the new order quantity (after subtracting matched order quantity), update best price
-            // if the min of the quantities equal to the new order -> done matching don't bother putting into correct half book
-        // keep doing this while loop, if a 
-
     // need to handle that the quantities won't necessarily match --> buy order at $20 for 5 qty shoudn't match with a sell order at $10 for 3 qty
     void handle_trades(ClientRequest* client_req, SPSCQueue<OrdersUpdate>* orders_update_q) {
         if (client_req->side == Side::BUY) {
-            uint64_t buy_order_price = client_req->price;
-            uint32_t buy_order_quantity = client_req->qty;
-            while (buy_order_price >= bestSell && buy_order_quantity) {
-                Order* sell_order = sell_book.top(bestSell);
-                int matched_qty = std::min(buy_order_quantity, sell_order->qty);
-                bool sell_order_finished = matched_qty >= sell_order->qty; 
-
-                if (sell_order_finished) {
-                    try {   
-                        orders_update_q->emplace_back(sell_order->market_order_id, sell_order->qty, 0, sell_order->price, Side::SELL, UpdateType::TRADE);
-                        sell_book.remove_order(sell_order); // updates best Sell automatically
-                        buy_order_quantity -= matched_qty;
-                    } catch (const std::runtime_error& e) {
-                        throw;
-                    }
-                } else { // buy order qty must be strictly smaller -> but able to finish, just insert into queue, don't add back in
-                    try {
-                        orders_update_q->emplace_back(client_req->market_order_id, matched_qty, 0, buy_order_price, Side::BUY, UpdateType::TRADE);
-                        buy_order_quantity -= matched_qty;
-                    } catch (const std::runtime_error& e) {
-                        throw;
-                    }
-                }
-            }
-
-            if (buy_order_quantity) {
-                // create an order and insert it into the book
-                client_req->qty = buy_order_quantity;
-                buy_book.insert_order(client_req);
-            }
+            buy_order_trade(client_req, orders_update_q);
         } else {
-            // do sell side
+            sell_order_trade(client_req, orders_update_q);
         }
     }
 
 
 private:
+
+    void sell_order_trade(ClientRequest* client_req, SPSCQueue<OrdersUpdate>* orders_update_q) {
+        uint64_t sell_order_price = client_req->price;
+        uint32_t sell_order_qty = client_req->qty;
+
+        // trades can be made as long as this sell price is smaller than the best buy
+        while (sell_order_price <= bestBuy && sell_order_qty) {
+            Order* buy_order = buy_book.top(bestBuy);
+            int matched_qty = std::min(buy_order->qty, sell_order_qty);
+
+            bool buy_order_finished = matched_qty >= buy_order->qty;
+            if (buy_order_finished) {
+                try {
+                    orders_update_q->emplace_back(buy_order->market_order_id, matched_qty, 0, buy_order->price, Side::BUY, UpdateType::TRADE);
+                    buy_book.remove_order(buy_order);
+                    sell_order_qty -= matched_qty;
+                } catch (const std::runtime_error& e) {
+                    throw;
+                }
+            } else { // sell order must have matched and now we are done with this order
+                try {
+                    orders_update_q->emplace_back(market_order_id++, matched_qty, 0, sell_order_price, Side::SELL, UpdateType::TRADE);
+                    sell_order_qty -= matched_qty;
+                } catch (const std::runtime_error& e) {
+                    throw;
+                }
+            }
+
+            if (sell_order_qty) {
+                client_req->qty = sell_order_qty;
+                sell_book.insert_order(client_req);
+            }
+        }
+
+        
+    }
+
+
+    void buy_order_trade(ClientRequest* client_req, SPSCQueue<OrdersUpdate>* orders_update_q) {
+        uint64_t buy_order_price = client_req->price;
+        uint32_t buy_order_quantity = client_req->qty;
+        while (buy_order_price >= bestSell && buy_order_quantity) {
+            Order* sell_order = sell_book.top(bestSell);
+            int matched_qty = std::min(buy_order_quantity, sell_order->qty);
+            bool sell_order_finished = matched_qty >= sell_order->qty; 
+
+            if (sell_order_finished) {
+                try {   
+                    orders_update_q->emplace_back(sell_order->market_order_id, sell_order->qty, 0, sell_order->price, Side::SELL, UpdateType::TRADE);
+                    sell_book.remove_order(sell_order); // updates best Sell automatically
+                    buy_order_quantity -= matched_qty;
+                } catch (const std::runtime_error& e) {
+                    throw;
+                }
+            } else { // buy order qty must be strictly smaller -> but able to finish, just insert into queue, don't add back in
+                try {
+                    // never got placed into the book so it never got a market id
+                    orders_update_q->emplace_back(market_order_id++, matched_qty, 0, buy_order_price, Side::BUY, UpdateType::TRADE);
+                    buy_order_quantity -= matched_qty;
+                } catch (const std::runtime_error& e) {
+                    throw;
+                }
+            }
+        }
+
+        if (buy_order_quantity) {
+            // create an order and insert it into the book
+            client_req->qty = buy_order_quantity;
+            buy_book.insert_order(client_req);
+        }
+    }
+
+
+
     HalfBook sell_book;
     HalfBook buy_book;
     size_t bestBuy = 0;
