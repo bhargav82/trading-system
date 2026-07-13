@@ -5,13 +5,6 @@
 
 
 // set global variables
-constexpr size_t LOG_QUEUE_SIZE = 8 * 1024 * 1024;
-constexpr size_t ME_MAX_TICKERS = 8;
-constexpr size_t ME_MAX_CLIENT_UPDATES = 256 * 1024;
-constexpr size_t ME_MAX_MARKET_UPDATES = 256 * 1024;
-constexpr size_t ME_MAX_NUM_CLIENTS = 256;
-constexpr size_t ME_MAX_ORDER_IDS = 1024 * 1024;
-constexpr size_t ME_MAX_PRICE_LEVELS = 256;
 
 struct Object {
     int val;
@@ -48,38 +41,30 @@ struct SimpleObj {
     }
 };
 
-size_t get_timestamp_us() {
+inline size_t get_timestamp_us() {
     return 1;
 }
 
 
-template <typename T>
-constexpr T INVALID = std::numeric_limits<T>::max();
-
-template <typename T>
-inline std::string toString(T& t) {
-    if (t == INVALID<T>)[[unlikely]] {
-        return "INVALID";
-    }
-
-    return std::to_string(t);
-}
 
 enum class Side : int8_t {
     INVALID = 0,
     BUY = 1,
-    SELL = -1
+    SELL = 2,
+    DEFAULT = 3
 };
 
 
 inline std::string sideToString(Side& side) {
 switch (side) {
     case Side::BUY:
-    return "BUY";
+        return "BUY";
     case Side::SELL:
-    return "SELL";
+        return "SELL";
     case Side::INVALID:
-    return "INVALID";
+        return "INVALID";
+    case Side::DEFAULT:
+        return "DEFAULT";
 }
     return "UNKNOWN";
 }
@@ -156,6 +141,9 @@ struct ClientRequest {
     uint32_t qty;
     RequestType rt;
     Side side;
+
+    ClientRequest() : order_id(0), ticker_id(0), client_id(0), price(0), qty(0), rt(RequestType::INVALID), side(Side::DEFAULT) {}
+    ClientRequest(uint64_t o_id, uint32_t t_id, uint32_t c_id, uint32_t p, uint32_t q, RequestType rt_, Side s_) : order_id(o_id), ticker_id(t_id), client_id(c_id), price(p), qty(q), rt(rt_), side(s_) {}
 };
 
 struct ClientResponse {
@@ -166,16 +154,21 @@ struct ClientResponse {
     uint32_t qty_remaining;   // for partially filled orders, client needs to know if any is left, multiple messages sent for 1 order if requires multiple orders
     uint32_t price;
     Side side;
+
+    ClientResponse() : client_order_id(0), market_order_id(0), client_id(0), qty_filled(0), qty_remaining(0), price(0), side(Side::DEFAULT) {}
 };
 
 
 struct OrdersUpdate {
     uint64_t market_order_id; // id of the market order that is finished
     uint32_t qty_filled;
-    uint32_t qtr_remaining;   // data needed to update clients match book
+    uint32_t qty_remaining;   // data needed to update clients match book
     uint32_t price;           // price order was matched at
     Side side;
     UpdateType ut;    // so client knows whether it was a new, a cancelled
+
+    OrdersUpdate() : market_order_id(0), qty_filled(0), qty_remaining(0), price(0), side(Side::DEFAULT), ut(UpdateType::INVALID) {}
+    OrdersUpdate(uint64_t mo_id, uint32_t qty_f, uint32_t qty_r, uint32_t p, Side s, UpdateType ut_) : market_order_id(mo_id), qty_filled(qty_f), qty_remaining(qty_r), price(p), side(s), ut(ut_) {}
 };
 
 

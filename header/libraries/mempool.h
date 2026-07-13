@@ -23,7 +23,7 @@ private:
     size_t sz;
     // T* first = nullptr;
 
-    void update_next_free() noexcept {
+    void update_next_free() {
         size_t current_free_idx = next_free;
         while (!is_free_list[next_free]) {
             ++next_free;
@@ -59,7 +59,7 @@ public:
 
     // use placement new (ptr) T() to construct the object in the next free space, update counter after
     template <typename ...Args>
-    [[nodiscard]] T* construct(Args&& ...args) noexcept {
+    [[nodiscard]] T* construct(Args&& ...args) {
         // 1. Find the address of the next free location
         T* insert_loc = buffer + next_free;
 
@@ -81,19 +81,19 @@ public:
     }
 
     
-    void destruct(T* t_) noexcept {
+    void destruct(T* t_) {
         // 1. Find the index, by subtracting pointer from state (std::byte so need to device by sizeof(T))
         size_t t_index = t_ - buffer;
         
         // 2. Assert index is valid
         assert(t_index >= 0 && t_index < sz && "t_index is out of range");
-        if (t_index < 0 t_index >= sz) {
+        if (t_index < 0 || t_index >= sz) {
             throw std::runtime_error("mempool: Object out of range in pool");
         }
         
         // 3. just need to update is_free of that index and destroy object in that space
         if (!is_free_list[t_index]) {
-            throw std::runtime_error("mempool: Index is not being used in free list")
+            throw std::runtime_error("mempool: Index is not being used in free list");
         }
 
         (buffer + t_index * sizeof(T))->~T();
