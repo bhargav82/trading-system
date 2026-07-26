@@ -92,8 +92,8 @@ public:
         }
         
         // 3. just need to update is_free of that index and destroy object in that space
-        if (!is_free_list[t_index]) {
-            throw std::runtime_error("mempool: Index is not being used in free list");
+        if (is_free_list[t_index]) {
+            throw std::runtime_error("mempool: Index is not being used in free list: " + std::to_string(t_index));
         }
 
         (buffer + t_index * sizeof(T))->~T();

@@ -128,7 +128,7 @@ private:
 // Consider using a dispatch table to avoid branches
 // operations: insert, cancel, modify, check for crossing
 class Book {
-    FRIEND_TEST(PriceLevelTop, PriceLevel);
+    FRIEND_TEST(PriceLevelTopBuy, PriceLevel);
 public:
     
     Book() = delete;
@@ -154,13 +154,14 @@ public:
 
     void remove_order(Order* order) {
         if (order->side == Side::BUY) {
+            // remove the order
             buy_book.remove_order(order);
-            // if the current order is the best price, and after we remove it head is the only order in this queue -> must move up until thats not true
-            if (bestBuy == order->price && buy_book.top(order->price)->price == 0) {
-                ssize_t start = bestBuy;
-                for ( ; start >= 0 && buy_book.top(start)->price == 0; --start) {};
-                bestBuy = start;
-            }
+
+            // if the best order. top now points at tail (within this index (index is a doubly linked list)) which has price == 0
+            ssize_t start = bestBuy;
+            for ( ; start > 0 && buy_book.top(start)->price == 0; --start) {};
+            bestBuy = start;
+            
         } else {
             sell_book.remove_order(order);
             // same as above but go down in prices for sells, the best sell is someone selling for 1
@@ -260,14 +261,14 @@ private:
     HalfBook sell_book;
     HalfBook buy_book;
 
-    size_t bestBuy = 0;
-    size_t bestSell = std::numeric_limits<size_t>::max();
+    size_t bestBuy = 0; // ranges from [0, 128]
+    size_t bestSell = 128; // ranges from [0-128]
 };
 
 
 
 class MatchingEngine {
-    FRIEND_TEST(PriceLevelTop, PriceLevel);
+    FRIEND_TEST(PriceLevelTopBuy, PriceLevel);
 public:
 
     MatchingEngine() : client_request_queue(ME_MAX_CLIENT_UPDATES), client_response_queue(ME_MAX_CLIENT_UPDATES), orders_update_queue(ME_MAX_MARKET_UPDATES) {}
