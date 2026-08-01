@@ -22,7 +22,7 @@ foreach(target
     test_thread
 )
     target_compile_definitions(${target}
-        PRIVATE LOG_LEVEL=0
+        PRIVATE LOG_LEVEL=1
     )
 
     target_include_directories(${target}

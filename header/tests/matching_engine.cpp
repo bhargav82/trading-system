@@ -224,3 +224,51 @@ TEST(PriceLevelTopSell, MatchingEngine) {
     EXPECT_EQ(bestSell, 129);
 
 }
+
+
+TEST(MakeTrades, MatchingEngine) {
+    MatchingEngine me;
+    
+    // Test 1 bid/sell 
+    ClientRequest* buy_40 = default_request(true);
+    buy_40->price = 40;
+    buy_40->qty = 5;
+    buy_40->client_id = 1;
+    me.add_order(buy_40);
+    ASSERT_EQ(me.books[0]->bestBuy, 40);
+    ASSERT_EQ(me.books[0]->bestSell, 129);
+
+    ClientRequest* sell_35 = default_request(false);
+    sell_35->qty = 3;
+    sell_35->price = 35;
+    sell_35->client_id = 1;
+    // should print executing sell order trade
+    me.handle_trades(sell_35);
+
+    // should have the buy remaining with price 40 qty 2 from client 1
+    ASSERT_EQ(me.books[0]->bestBuy, 40);
+    ASSERT_EQ(me.books[0]->buy_book.top(40)->qty, 2);
+    ASSERT_EQ(me.books[0]->bestSell, 129);
+
+    // me.orders_update_queue.print();
+
+    // Test 2:
+    // insert 5 buy requests, and then insert 1 sell to fill them all
+    for (size_t i = 0; i < 5; ++i) {
+        ClientRequest* buy_i = default_request(true);
+        buy_i->qty = 5;
+        buy_i->price = i + 40; // makes buy orders at price, 40, 41, 42, 43, 44
+        me.add_order(buy_i);
+        ASSERT_EQ(me.books[0]->bestBuy, i + 40);
+    }
+    
+    // insert a sell to fill all 
+    ClientRequest* sell_i = default_request(false);
+    sell_i->qty = 25;
+    sell_i->price = 30;
+    me.handle_trades(sell_i); // should print executing sell order 5 times
+
+
+
+    
+}

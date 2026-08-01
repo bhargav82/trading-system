@@ -2,6 +2,7 @@
 #include <iostream>
 #include <limits>
 #include <string>
+#include "log.h"
 
 
 // set global variables
@@ -144,6 +145,10 @@ struct ClientRequest {
 
     ClientRequest() : order_id(0), ticker_id(0), client_id(0), price(0), qty(0), rt(RequestType::INVALID), side(Side::DEFAULT) {}
     ClientRequest(uint64_t o_id, uint32_t t_id, uint32_t c_id, uint32_t p, uint32_t q, RequestType rt_, Side s_) : order_id(o_id), ticker_id(t_id), client_id(c_id), price(p), qty(q), rt(rt_), side(s_) {}
+
+    void print() {
+        LOG("ClientRequest a " << (side == Side::BUY ? "buy" : "sell") << " of ticker_id " << ticker_id << " for client " << client_id << " at price " << price << " at qty " << qty);
+    }
 };
 
 struct ClientResponse {
@@ -168,7 +173,11 @@ struct OrdersUpdate {
     UpdateType ut;    // so client knows whether it was a new, a cancelled
 
     OrdersUpdate() : market_order_id(0), qty_filled(0), qty_remaining(0), price(0), side(Side::DEFAULT), ut(UpdateType::INVALID) {}
-    OrdersUpdate(uint64_t mo_id, uint32_t qty_f, uint32_t qty_r, uint32_t p, Side s, UpdateType ut_) : market_order_id(mo_id), qty_filled(qty_f), qty_remaining(qty_r), price(p), side(s), ut(ut_) {}
+    OrdersUpdate(uint64_t mo_id, uint32_t qty_f, uint32_t qty_r, uint32_t p, Side s, UpdateType ut_) : market_order_id(mo_id), qty_filled(qty_f), qty_remaining(qty_r), price(p), side(s), ut(ut_) {};
+    
+    void print() {
+        LOG("OrdersUpdate for " << (side == Side::BUY ? "buy" : "sell") << " at price " << price << " at quantity " << qty_filled);
+    }
 };
 
 

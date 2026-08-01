@@ -66,7 +66,9 @@ public:
     // used to distinguish full from empty without a separate counter.
     // The caller-visible capacity is still cap.
     // Requires: cap >= 1.
-    explicit SPSCQueue(uint64_t cap) : queue{new T[cap + 1], cap + 1} {}
+    explicit SPSCQueue(uint64_t cap) : queue{new T[cap + 1], cap + 1} {
+        free.resize(cap + 1, false);
+    }
 
 
     SPSCQueue() = delete;                                                       
@@ -87,6 +89,7 @@ public:
         if (ret.first) {
             new (queue.buffer + prod.tail_ptr.load(std::memory_order_acquire)) T(std::forward<Args>(args)...);
             LOG("emplace_back: Inserted at position " << prod.tail_ptr);
+            
             prod.tail_ptr.store(ret.second, std::memory_order_release);
         }
     }
@@ -196,7 +199,8 @@ public:
     // Effects:  prints every slot in the buffer including empty ones, debug only.
     void print() {
         for (uint64_t i = 0; i < queue.capacity; ++i) {
-            std::cout << "element at " << i << " " << *(queue.buffer + i);
+            LOG("element at " << i << " is ");
+            (queue.buffer + i)->print(); // LOG the actual object
         }
     }
 
@@ -237,7 +241,7 @@ private:
         T* buffer;
         uint64_t capacity;
     };
-   
+    std::vector<bool> free;
     Consumer cons;
     Producer prod;
     Queue queue;
