@@ -65,10 +65,9 @@ public:
     // Allocates cap + 1 slots internally — the extra slot is the "wasted slot"
     // used to distinguish full from empty without a separate counter.
     // The caller-visible capacity is still cap.
+    // ::operator new allocates the bytes but does not call a default constructor of any object
     // Requires: cap >= 1.
-    explicit SPSCQueue(uint64_t cap) : queue{new T[cap + 1], cap + 1} {
-        free.resize(cap + 1, false);
-    }
+    explicit SPSCQueue(uint64_t cap) : queue{static_cast<T*>(::operator new(sizeof(T)) * (cap + 1))} {}
 
 
     SPSCQueue() = delete;                                                       
@@ -102,7 +101,8 @@ public:
         std::pair<bool, uint64_t> ret = try_insert();
 
         if (ret.first) {
-            queue.buffer[prod.tail_ptr.load(std::memory_order_acquire)] = std::forward<T>(other);
+            uint64_t tail = prod.tail_ptr.load(std::memory_order_relaxed);
+            new (queue.buffer + tail) T(std::move(other)); // move that object into the buffer
             LOG("push_back: Inserted at position " << prod.tail_ptr);
             prod.tail_ptr.store(ret.second, std::memory_order_release);
         }
@@ -150,8 +150,7 @@ public:
     void pop() {
         if (top()) {
             uint64_t head = cons.head_ptr.load(std::memory_order_acquire);
-            (queue.buffer + head)->~T();
-            std::memset(queue.buffer + head, 0, sizeof(T));
+            (queue.buffer + head)->~T(); // this space is free
 
             ++head;
             if (head == queue.capacity) [[unlikely]] {
@@ -185,22 +184,30 @@ public:
     // Effects:  safe to call even if queue is partially filled.
     ~SPSCQueue() { 
         if (!std::is_trivially_destructible_v<T>) {
-            for (uint64_t i = 0; i < queue.capacity; ++i) {
-                (queue.buffer + i)->~T();
+            uint64_t head = cons.head_ptr.load(std::memory_order_relaxed);
+            uint64_t tail = prod.tail_ptr.load(std::memory_order_relaxed);
+            while (head != tail) {
+                (queue.buffer + head)->~T(); // call the object destructor to free it
+                ++head;
+                if (head == queue.capacity) head = 0;
             }
         }
 
-        delete[] queue.buffer;
+        ::operator delete(queue.buffer); // free the bytes allocated
     }
 
     
     // Requires: nothing.
     // Modifies: nothing.
-    // Effects:  prints every slot in the buffer including empty ones, debug only.
+    // Effects:  prints every slot in the buffer that has data (head -> tail)
     void print() {
-        for (uint64_t i = 0; i < queue.capacity; ++i) {
-            LOG("element at " << i << " is ");
-            (queue.buffer + i)->print(); // LOG the actual object
+        uint64_t head = cons.head_ptr.load(std::memory_order_relaxed);
+        uint64_t tail = prod.tail_ptr.load(std::memory_order_relaxed);
+        while (head != tail) {
+            LOG("element at " << head);
+            (queue.buffer + head)->print();
+            ++head;
+            if (head == queue.capacity) head = 0; // modulo back
         }
     }
 
@@ -241,7 +248,8 @@ private:
         T* buffer;
         uint64_t capacity;
     };
-    std::vector<bool> free;
+
+    // all on different cache lines 
     Consumer cons;
     Producer prod;
     Queue queue;
