@@ -5,5 +5,17 @@ jobs:
     build:
         runs-on: ubuntu-latest
         steps:
+            - name: "Checkout repo"
+              uses: actions/checkout@4
+
+            - name: "Download dependencies"
+              run: sudo apt-get update && sudo adp-get install -y build-essential cmake ninja-build
+
+            - name: "Make Cmake"
+              run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+
+            - name: "Build benchmark"
+              run: cd build && cmake
+
             - name: "Runs SPSC benchmark on Linux"
               run: ./build/header/tests/benchmarks
