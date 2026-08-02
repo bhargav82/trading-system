@@ -1,0 +1,9 @@
+name: SPSC Benchmark
+on: [push]
+
+jobs:
+    build:
+        runs-on: ubuntu-latest
+        steps:
+            - name: "Runs SPSC benchmark on Linux"
+              run: ./build/header/tests/benchmarks
