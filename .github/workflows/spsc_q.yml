@@ -7,15 +7,20 @@ jobs:
         steps:
             - name: "Checkout repo"
               uses: actions/checkout@v4
+              with:
+                path: trading-insights
 
             - name: "Download dependencies"
               run: sudo apt-get update && sudo apt-get install -y build-essential cmake ninja-build
 
             - name: "Make Cmake"
+              working-directory: trading-insights
               run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 
             - name: "Build benchmark"
-              run: cd build && cmake
+              working-directory: tranding-insights
+              run: cmake --build build
 
             - name: "Runs SPSC benchmark on Linux"
+              working-directory: trading-insights
               run: ./build/header/tests/benchmarks
