@@ -132,7 +132,9 @@ private:
 class Book {
     FRIEND_TEST(PriceLevelTopBuy, MatchingEngine);
     FRIEND_TEST(PriceLevelTopSell, MatchingEngine);
-    FRIEND_TEST(MakeTrades, MatchingEngine);
+    FRIEND_TEST(MakeTradesBuySide, MatchingEngine);
+    FRIEND_TEST(MakeTradesSellSide, MatchingEngine);
+    FRIEND_TEST(MakeTradesBothSides, MatchingEngine);
 public:
     
     Book() = delete;
@@ -192,83 +194,77 @@ public:
 private:
 
     void sell_order_trade(ClientRequest* client_req, SPSCQueue<OrdersUpdate>* orders_update_q) {
-        
+        uint64_t og_sell_qty = client_req->qty;
         uint64_t sell_order_price = client_req->price;
         uint32_t sell_order_qty = client_req->qty;
 
         // trades can be made as long as this sell price is smaller than the best buy
         while (sell_order_price <= bestBuy && sell_order_qty) {
-            LOG("Executing sell order trade at " << sell_order_price << " for " << sell_order_qty);
             Order* buy_order = buy_book.top(bestBuy);
             int matched_qty = std::min(buy_order->qty, sell_order_qty);
+            LOG("Executing sell order trade at " << sell_order_price << " for " << matched_qty);
 
             bool buy_order_finished = matched_qty >= buy_order->qty;
             if (buy_order_finished) {
                 try {
-                    orders_update_q->emplace_back(buy_order->market_order_id, matched_qty, 0, buy_order->price, Side::BUY, UpdateType::TRADE);
+                    orders_update_q->emplace_back(buy_order->market_order_id, buy_order->qty, 0, sell_order_price, Side::BUY, UpdateType::TRADE); // this buy trade was filled by the sell, but could be a diff price then it originally had
+                    orders_update_q->emplace_back(client_req->order_id, matched_qty, sell_order_qty - matched_qty, sell_order_price, Side::SELL, UpdateType::TRADE); // this sell that filled also needs to be added to updates even if it isn't completely done
                     remove_order(buy_order); // updates best buy
-                    sell_order_qty -= matched_qty;
                 } catch (const std::runtime_error& e) {
                     throw;
                 }
             } else { // sell order must have matched and now we are done with this order
-                try {
-                    buy_order->qty -= matched_qty;
-                    orders_update_q->emplace_back(market_order_id++, matched_qty, 0, sell_order_price, Side::SELL, UpdateType::TRADE);
-                    sell_order_qty -= matched_qty;
-                } catch (const std::runtime_error& e) {
-                    throw;
-                }
+                buy_order->qty -= matched_qty;
             }
+            sell_order_qty -= matched_qty;
+
         }
 
         if (sell_order_qty) {
-            LOG("Inserting sell order at price " << sell_order_price << " for " << sell_order_qty); 
+            LOG("Inserting sell order at price " << sell_order_price << " for " << sell_order_qty);
             client_req->qty = sell_order_qty;
-            sell_book.insert_order(client_req);
+            Order* new_sell_order = insert_order(client_req);
+            orders_update_q->emplace_back(new_sell_order->market_order_id, new_sell_order->qty, og_sell_qty - client_req->qty, new_sell_order->price, Side::SELL, UpdateType::ADD);
         }
         
     }
 
 
     void buy_order_trade(ClientRequest* client_req, SPSCQueue<OrdersUpdate>* orders_update_q) {
-        
+        uint64_t og_buy_qty = client_req->qty;
         uint64_t buy_order_price = client_req->price;
         uint32_t buy_order_quantity = client_req->qty;
         while (buy_order_price >= bestSell && buy_order_quantity) {
-            LOG("Executing buy order trade at " << buy_order_price << " for " << buy_order_quantity);
             Order* sell_order = sell_book.top(bestSell);
             int matched_qty = std::min(buy_order_quantity, sell_order->qty);
+            LOG("Executing buy order trade at " << buy_order_price << " for " << matched_qty);
+
             bool sell_order_finished = matched_qty >= sell_order->qty; 
 
             if (sell_order_finished) {
                 try {   
-                    orders_update_q->emplace_back(sell_order->market_order_id, sell_order->qty, 0, sell_order->price, Side::SELL, UpdateType::TRADE);
+                    orders_update_q->emplace_back(sell_order->market_order_id, sell_order->qty, 0, sell_order->price, Side::SELL, UpdateType::TRADE); // add an update for the filled sell
+                    orders_update_q->emplace_back(client_req->order_id, sell_order->qty, buy_order_quantity - matched_qty, sell_order->price, Side::BUY, UpdateType::TRADE); // add an update for the part of the buy that filled 
                     remove_order(sell_order); // updates best Sell automatically
-                    buy_order_quantity -= matched_qty;
                 } catch (const std::runtime_error& e) {
                     throw;
                 }
             } else { // buy order qty must be strictly smaller -> but able to finish, just insert into queue, don't add back in
-                try {
-                    // never got placed into the book so it never got a market id
-                    orders_update_q->emplace_back(market_order_id++, matched_qty, 0, buy_order_price, Side::BUY, UpdateType::TRADE);
-                    buy_order_quantity -= matched_qty;
                     sell_order->qty -= matched_qty;
-                } catch (const std::runtime_error& e) {
-                    throw;
-                }
             }
+            
+            buy_order_quantity -= matched_qty;
+           
         }
 
         if (buy_order_quantity) {
             LOG("Inserting buy order at " << buy_order_price << " for " << buy_order_quantity);
             // create an order and insert it into the book
             client_req->qty = buy_order_quantity;
-            buy_book.insert_order(client_req);
+            Order* new_buy_order = insert_order(client_req);
+            orders_update_q->emplace_back(new_buy_order->market_order_id, new_buy_order->qty, og_buy_qty - new_buy_order->qty, new_buy_order->price, Side::BUY, UpdateType::ADD);
         }
     }
-
 
 
     HalfBook sell_book;
@@ -283,7 +279,9 @@ private:
 class MatchingEngine {
     FRIEND_TEST(PriceLevelTopBuy, MatchingEngine);
     FRIEND_TEST(PriceLevelTopSell, MatchingEngine);
-    FRIEND_TEST(MakeTrades, MatchingEngine);
+    FRIEND_TEST(MakeTradesBuySide, MatchingEngine);
+    FRIEND_TEST(MakeTradesSellSide, MatchingEngine);
+    FRIEND_TEST(MakeTradesBothSides, MatchingEngine);
 public:
 
     MatchingEngine() : client_request_queue(ME_MAX_CLIENT_UPDATES), client_response_queue(ME_MAX_CLIENT_UPDATES), orders_update_queue(ME_MAX_MARKET_UPDATES) {}

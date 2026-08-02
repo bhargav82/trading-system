@@ -226,7 +226,7 @@ TEST(PriceLevelTopSell, MatchingEngine) {
 }
 
 
-TEST(MakeTrades, MatchingEngine) {
+TEST(MakeTradesSellSide, MatchingEngine) {
     MatchingEngine me;
     
     // Test 1 bid/sell 
@@ -269,6 +269,66 @@ TEST(MakeTrades, MatchingEngine) {
     me.handle_trades(sell_i); // should print executing sell order 5 times
 
 
+  
+}
+
+TEST(MakeTradesBuySide, MatchingEngine) {
+      // test matches for buy side
+    MatchingEngine me2;
+
+    // make a sell order at 45
+    ClientRequest* sell_45 = default_request(false);
+    sell_45->price = 45;
+    sell_45->qty = 5;
+    me2.add_order(sell_45);
+    // make a buy request that fills this request
+    ClientRequest* buy_50 = default_request(true);
+    buy_50->price = 50;
+    buy_50->qty = 5;
+    me2.handle_trades(buy_50);
+    // should print execute buy order -> does not insert the buy order since it was ful
+    ASSERT_EQ(me2.books[0]->bestBuy, 0);
+    ASSERT_EQ(me2.books[0]->bestSell, 129);
+
+    // now there are no orders
+    // insert 2 sells and have them all fill up 1 buy
+    ClientRequest* sell_45_2 = default_request(false);
+    sell_45_2->price = 45;
+    sell_45_2->qty = 5;
+    me2.add_order(sell_45_2);
+
+    ClientRequest* sell_45_3 = default_request(false);
+    sell_45_3->price = 45;
+    sell_45_3->qty = 6;
+    me2.add_order(sell_45_3);
+
+    // there should be 2 sell orders at price 45, with order [qty5, qty6]
+    ASSERT_EQ(me2.books[0]->bestSell, 45);
+    ASSERT_EQ(me2.books[0]->sell_book.top(45)->qty, 5);
+
+    // add a new buy order that can fill both
+    ClientRequest* buy_50_2 = default_request(true);
+    buy_50_2->price = 50;
+    buy_50_2->qty = 15;
+    me2.handle_trades(buy_50_2); 
+    // should print execute buy order -> inserts buy order that has 4 qty remaining
+    ASSERT_EQ(me2.books[0]->bestBuy, 50);
+    ASSERT_EQ(me2.books[0]->buy_book.top(50)->qty, 4);
+
+    // add a sell order that can fill the remaining 4 qty of the prev buy
+    ClientRequest* sell_order_filler = default_request(false);
+    sell_order_filler->price = 30;
+    sell_order_filler->qty = 4;
+    me2.handle_trades(sell_order_filler);
+    // should print executing sell order
+    
+    // should have no remaining sell orders and buy orders remaining
+    ASSERT_EQ(me2.books[0]->bestBuy, 0);
+    ASSERT_EQ(me2.books[0]->bestSell, 129);
+}
+
+TEST(MakeTradesBothSides, MatchingEngine) {
+    // test both sides trading at scale
 
     
 }
