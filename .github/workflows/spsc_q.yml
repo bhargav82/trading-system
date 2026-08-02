@@ -18,7 +18,7 @@ jobs:
               run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 
             - name: "Build benchmark"
-              working-directory: tranding-insights
+              working-directory: trading-insights
               run: cmake --build build
 
             - name: "Runs SPSC benchmark on Linux"
