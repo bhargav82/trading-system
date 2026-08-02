@@ -3,13 +3,21 @@
 #include <chrono>
 #include <atomic>
 #include <thread>
-#include <pthread.h>
-#include <mach/mach.h>
 #include <iostream>
+
+#if defined(__APPLE__) 
+    #include <pthread.h>
+    #include <mach/mach.h>
+#elif defined(__linux__)
+    #include <pthread.h>
+    #include <sched.h>
+#endif
+
+
+
 
 template<typename Func, typename... Args>
 auto launch_thread(int group_id, int qos, Func&& f, Args&& ...args) noexcept;
-
 bool set_thread_affinity(int group_id, int qos_class);
 
 
@@ -74,6 +82,7 @@ auto launch_thread(int group_id, int qos, Func&& f, Args&& ...args) noexcept {
 /// @param qos_class enumerated priority level, choose the priority level based on what function thread is executing
 /// @return true if pinning the core was successful, false otherwise
 bool set_thread_affinity(int group_id, int qos_class) {
+#if defined(__APPLE__)
     // Use thread_policy_set with THREAD_AFFINITY_POLICY to suggest threads with same affinity tag to be scheduled on same core or share L2 cache
 
     // 1. Convert pthread_t to a thread_port_t
@@ -88,10 +97,23 @@ bool set_thread_affinity(int group_id, int qos_class) {
     }
     
     // 3. Set thread policy
-    kern_return_t k_ret = thread_policy_set(mach_thread, THREAD_STANDARD_POLICY, thread_policy_t(&policy), THREAD_STANDARD_POLICY_COUNT);
-    if (k_ret != KERN_SUCCESS) {
-        return false;
-    }
+    kern_return_t k_ret = thread_policy_set(mach_thread, THREAD_AFFINITY_POLICY, thread_policy_t(&policy), THREAD_STANDARD_POLICY_COUNT);
+    return k_ret == KERN_SUCCESS;
 
-    return true;
+#elif defined(__linux__)
+    // on lnux, group_id is a concerte CPU index, QoS can be ignored
+    // can set priority and set scheduler
+
+    cpu_set_t cpuset;
+    CPU_ZERO(&cpuset); // initialize set to zero
+    CPU_SET(group_id, &cpuset);
+    return pthread_getaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset) == 0; // return 0 on sucess
+
+#else 
+    return false;
+    
+#endif
 }
+
+// Do NOT pin to core 0 (meant for core processes), also need to know which core to pin on based on NUMA
+// 

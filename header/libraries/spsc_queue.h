@@ -50,6 +50,7 @@ static constexpr size_t cache_line = 64;
 #endif
 
 
+
 // Lock-free single-producer single-consumer ring buffer.
 // Invariants:
 //   - head_ptr never overtakes tail_ptr (no reading from empty slots)
