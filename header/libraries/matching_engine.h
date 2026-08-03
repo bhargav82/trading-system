@@ -5,6 +5,7 @@
 #include "mempool.h"
 #include <atomic>
 #include <array>
+#include <unordered_map>
 #include <limits>
 
 constexpr size_t LOG_QUEUE_SIZE = 8 * 1024 * 1024;

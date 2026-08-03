@@ -1,10 +1,17 @@
 #pragma once
+
+// locked queue
 #include <deque>
 #include <mutex>
 #include <iostream>
+
+// spsc lock free
 #include <utility>
 #include <new>
 #include <vector>
+#include <atomic>
+
+
 #include "log.h"
 
 
