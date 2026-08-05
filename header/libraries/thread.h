@@ -46,7 +46,7 @@ auto launch_thread(int group_id, int qos, Func&& f, Args&& ...args) noexcept {
     std::atomic<bool> running(false);
 
     // new thread will run on its own schedule (indepedent of launch_thread) -> make a copy of arguments passed in by launch thread since this thread will outlive launch thread
-    auto thread_work = [&failed, &running, group_id, qos, f = std::forward<Func>(f), args = std::make_tuple(std:forward<Args>(args)...)]() mutable {
+    auto thread_work = [&failed, &running, group_id, qos, f = std::forward<Func>(f), args = std::make_tuple(std::forward<Args>(args)...)]() mutable {
         // first 
         
         if (!set_thread_affinity(group_id, qos)) {
