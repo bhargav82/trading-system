@@ -44,7 +44,6 @@ public:
     explicit MemoryPoolHeap(size_t n) : next_free(0), sz(n) {
         std::byte* temp = new std::byte[n * sizeof(T)];
         buffer = reinterpret_cast<T*>(temp);
-        memset(buffer, 0, n);
         is_free_list.resize(n, true);
     };
     

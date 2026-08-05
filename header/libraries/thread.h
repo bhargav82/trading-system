@@ -8,26 +8,25 @@
 #if defined(__APPLE__) 
     #include <pthread.h>
     #include <mach/mach.h>
+
 #elif defined(__linux__)
     #include <pthread.h>
     #include <sched.h>
 #endif
-
-
-
-
-template<typename Func, typename... Args>
-auto launch_thread(int group_id, int qos, Func&& f, Args&& ...args) noexcept;
-bool set_thread_affinity(int group_id, int qos_class);
-
 
 enum class QoS {
     QOS_CLASS_DEFAULT = 0,// normal priority
     QOS_CLASS_UTILITY = 1, // long running tasks
     QOS_CLASS_BACKGROUND = 2, // low priority background tasks
     QOS_CLASS_USER_INITIATED = 3, // user triggered work
-
 };
+
+template<typename Func, typename... Args>
+auto launch_thread(int group_id, int qos, Func&& f, Args&& ...args) noexcept;
+bool set_thread_affinity(int group_id, int qos_class);
+
+
+
 
 
 
@@ -39,13 +38,18 @@ enum class QoS {
 /// @param group_id mach thread groups, group together threads that should share a core/L2 cache
 /// @param qos task priority, when should OS schedule this thread
 /// @return pointer to the thread object (nullptr when failed), caller is responsible for deletion
+
+// templated function to create a ready thread to execute a function with any number of parameters. group_id is also used to pin onto a core
 template <typename Func, typename... Args>
 auto launch_thread(int group_id, int qos, Func&& f, Args&& ...args) noexcept {
     std::atomic<bool> failed(false);
     std::atomic<bool> running(false);
 
-    auto thread_work = [&]() {
-        if (qos < 0 || qos > 3 || !set_thread_affinity(group_id, qos)) {
+    // new thread will run on its own schedule (indepedent of launch_thread) -> make a copy of arguments passed in by launch thread since this thread will outlive launch thread
+    auto thread_work = [&failed, &running, group_id, qos, f = std::forward<Func>(f), args = std::make_tuple(std:forward<Args>(args)...)]() mutable {
+        // first 
+        
+        if (!set_thread_affinity(group_id, qos)) {
             std::cerr << "Failed to set thread affinity for " << pthread_self() << std::endl;
             failed = true;
             return;
@@ -54,8 +58,8 @@ auto launch_thread(int group_id, int qos, Func&& f, Args&& ...args) noexcept {
         std::cout << pthread_self() << " has been 'pinned' to group " << group_id << " with QoS " << qos << std::endl;
         running = true;
 
-        // Execute forwarded function with forwarded arguments
-        std::forward<Func>(f)((std::forward<Args>(args))...); // f(arg1, arg2, ...)
+        // will call the function using after unpacking the tuple arguments, use move instead of direct copy
+        std::apply(f, std::move(args)); // f(arg1, arg2, ...)
     };
     
     std::thread* thread = new std::thread(thread_work);
@@ -65,6 +69,7 @@ auto launch_thread(int group_id, int qos, Func&& f, Args&& ...args) noexcept {
         std::this_thread::sleep_for(std::chrono::seconds(1));
     }
 
+    // Started running, but failed thread pinning -> immediately stop
     if (failed) {
         thread->join();
         delete thread;
@@ -101,7 +106,7 @@ bool set_thread_affinity(int group_id, int qos_class) {
     return k_ret == KERN_SUCCESS;
 
 #elif defined(__linux__)
-    // on lnux, group_id is a concerte CPU index, QoS can be ignored
+    // on linux, group_id is a concerte CPU index, QoS can be ignored
     // can set priority and set scheduler
 
     cpu_set_t cpuset;

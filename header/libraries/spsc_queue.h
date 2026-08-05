@@ -94,7 +94,7 @@ public:
         std::pair<bool, uint64_t> ret = try_insert();
 
         if (ret.first) {
-            new (queue.buffer + prod.tail_ptr.load(std::memory_order_acquire)) T(std::forward<Args>(args)...);
+            new (queue.buffer + prod.tail_ptr.load(std::memory_order_relaxed)) T(std::forward<Args>(args)...);
             LOG("emplace_back: Inserted at position " << prod.tail_ptr);
             
             prod.tail_ptr.store(ret.second, std::memory_order_release);
@@ -148,7 +148,7 @@ public:
         if (!peek()) {
             return nullptr;
         }
-        return queue.buffer + cons.head_ptr.load(std::memory_order_acquire);
+        return queue.buffer + cons.head_ptr.load(std::memory_order_relaxed);
     }
 
 
@@ -157,7 +157,7 @@ public:
     // Effects:  no-op if queue is empty.
     void pop() {
         if (top()) {
-            uint64_t head = cons.head_ptr.load(std::memory_order_acquire);
+            uint64_t head = cons.head_ptr.load(std::memory_order_relaxed);
             (queue.buffer + head)->~T(); // this space is free
 
             ++head;
@@ -174,7 +174,7 @@ public:
     // Modifies: may update cached_tail from prod.tail_ptr if queue appeared empty.
     // Effects:  returns true if at least one element is available to consume.
     [[nodiscard]] bool inline peek() {
-        uint64_t head = cons.head_ptr.load(std::memory_order_acquire);
+        uint64_t head = cons.head_ptr.load(std::memory_order_relaxed);
         if (cons.cached_tail == head) {
             cons.cached_tail = prod.tail_ptr.load(std::memory_order_acquire);
 
