@@ -54,45 +54,52 @@ BENCHMARK(SPSC_Benchmark_POP);
 
 
 static constexpr int N = 10000000; // 10 million
-BENCHMARK(SPSC_CROSS_CORE) {
-std::atomic<bool> start = false;
+static void SPSC_CROSS_CORE(benchmark::State& state) {
+
 #if defined(__linux__)
-    // create two threads and call a function that will loop through push and pop
-    SPSCQueue<int> q(1024);
-    auto* producer = launch_thread(0, 2, [&q]() {
-        while (!start.load(std::memory_order_acquire)) {}
-        for (int i = 0; i < N; ++i) {
-            while (!q.try_insert().first) {}; // spin until it can emplace one bac
-            q.emplace(i);
-        }
-    });
-    auto* consumer = launch_thread(1, 2, [&q]() {
-        // have a spin lock here until we can start reading -> then start timing
-        while (!start.load(std::memory_order_acquire)) {} // spin until we can start timing
-        for (int i = 0; i < N; ++i) {
-            while (!q.top()) {}; 
-            benchmark::DoNotOptimize(*q.top()); // make sure compiler doesn't just throw the loop away
-            q.pop();
-        }
-    });
+    for (auto _ : state) {
+        state.PauseTiming();
+        // create two threads and call a function that will loop through push and pop
+        SPSCQueue<int> q(1024);
+        std::atomic<bool> begin = false;
+        auto* producer = launch_thread(0, 2, [&q]() {
+            while (!begin.load(std::memory_order_acquire)) {}
+            for (int i = 0; i < N; ++i) {
+                while (!q.try_insert().first) {}; // spin until it can emplace one bac
+                q.emplace(i);
+            }
+        });
+        auto* consumer = launch_thread(1, 2, [&q]() {
+            // have a spin lock here until we can start reading -> then start timing
+            while (!begin.load(std::memory_order_acquire)) {} // spin until we can start timing
+            for (int i = 0; i < N; ++i) {
+                while (!q.top()) {}; 
+                benchmark::DoNotOptimize(*q.top()); // make sure compiler doesn't just throw the loop away
+                q.pop();
+            }
+        });
 
-    assert(consumer != nullptr);
-    assert(producer != nullptr);
-    // now we know producer and consumer have successfully launched their respective thread and can start timing
-    uint32_t cpuid;
+        assert(consumer != nullptr);
+        assert(producer != nullptr);
+        // now we know producer and consumer have successfully launched their respective thread and can start timing
+        state.ResumeTiming();
+        uint32_t cpuid;
 
-    __mm_lfence(); // ensure that benchmarking is within the fence -> no CPU OOO
-    uint64_t start = __rdtsc(); // start the timer
-    start.store(true, std::memory_order_release);
-    producer->join();
-    consumer->join();
-    uint64_t end = __rdtscp(&cpuid); // end the timer
-    _mm_lfence(); // make sure no other instructions are re-ordered before the timer ends
+        __mm_lfence(); // ensure that benchmarking is within the fence -> no CPU OOO
+        uint64_t start = __rdtsc(); // start the timer
+        begin.store(true, std::memory_order_release);
+        producer->join();
+        consumer->join();
+        uint64_t end = __rdtscp(&cpuid); // end the timer
+        __mm_lfence(); // make sure no other instructions are re-ordered before the timer ends
 
-    delete producer;
-    delete consumer;
+        delete producer;
+        delete consumer;
+        state.SetIterationTime(cycles_to_seconds(end - start));
+    }
+  
 #endif
-
 }
+BENCHMARK(SPSC_CROSS_CORE)->UseManualTime()->Iterations(1)->Repetitions(20);
 
 BENCHMARK_MAIN();
