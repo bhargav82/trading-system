@@ -1,4 +1,4 @@
-link_directories(/opt/homebrew/lib)
+link_directories($ENV{HOME}/local/lib)
 
 add_executable(test_spsc_q
     spsc_queue.cpp
@@ -54,7 +54,7 @@ target_compile_definitions(benchmarks
 target_include_directories(benchmarks
     PRIVATE
         ${CMAKE_SOURCE_DIR}/header/libraries
-        /opt/homebrew/include
+        $ENV{HOME}/local/include
 )
 
 target_link_libraries(benchmarks

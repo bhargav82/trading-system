@@ -4,6 +4,7 @@
 #include <atomic>
 #include <thread>
 #include <iostream>
+#include "log.h"
 
 #if defined(__APPLE__) 
     #include <pthread.h>
@@ -55,7 +56,7 @@ auto launch_thread(int group_id, int qos, Func&& f, Args&& ...args) noexcept {
             return;
         }
 
-        std::cout << pthread_self() << " has been 'pinned' to group " << group_id << " with QoS " << qos << std::endl;
+	LOG(pthread_self() << " has been pinned to core/group " << group_id);
         running = true;
 
         // will call the function using after unpacking the tuple arguments, use move instead of direct copy

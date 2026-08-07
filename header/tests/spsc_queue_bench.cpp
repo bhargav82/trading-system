@@ -54,7 +54,7 @@ static void SPSC_Benchmark_POP(benchmark::State& state) {
 BENCHMARK(SPSC_Benchmark_POP);
 
 
-static constexpr int N = 10000000; // 10 million
+static constexpr int N = 1000000; // 1 million
 static void SPSC_CROSS_CORE(benchmark::State& state) {
 
 #if defined(__linux__)

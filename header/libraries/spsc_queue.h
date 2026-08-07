@@ -75,7 +75,7 @@ public:
     // The caller-visible capacity is still cap.
     // ::operator new allocates the bytes but does not call a default constructor of any object
     // Requires: cap >= 1.
-    explicit SPSCQueue(uint64_t cap) : queue{static_cast<T*>(::operator new(sizeof(T) * (cap + 1)))} {}
+    explicit SPSCQueue(uint64_t cap) : queue{static_cast<T*>(::operator new(sizeof(T) * (cap + 1))), cap + 1} {}
 
 
     SPSCQueue() = delete;                                                       
