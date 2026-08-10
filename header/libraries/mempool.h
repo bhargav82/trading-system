@@ -42,8 +42,7 @@ public:
     // Must be greater than 1, last spot is used to check if full
     // Can fill up to n - 1 spots
     explicit MemoryPoolHeap(size_t n) : next_free(0), sz(n) {
-        std::byte* temp = new std::byte[n * sizeof(T)];
-        buffer = reinterpret_cast<T*>(temp);
+        buffer = static_cast<T*>(::operator new (n * sizeof(T))); // reserve n * sizeof(t) bytes, but don't call default constructor
         is_free_list.resize(n, true);
     };
     
@@ -109,8 +108,8 @@ public:
             }
         }
 
-        // deallocate the byte buffer as well
-        delete[] buffer;
+        // deallocate the buffer bytes 
+        ::operator delete(buffer); 
 
     }
 

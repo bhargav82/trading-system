@@ -1,70 +1,103 @@
-# SPSC Queue
+# Trading System
 
-A high-performance single-producer, single-consumer (SPSC) bounded queue implemented in modern C++.
+A low-latency trading system built from scratch in modern C++, focused on the core
+infrastructure pieces a matching engine needs: a lock-free SPSC queue for inter-thread
+messaging, a custom memory pool to keep order allocation off the general-purpose
+allocator, and a price-time-priority limit order book on top of them.
 
-Designed for low latency and cache efficiency in single-producer / single-consumer pipelines.
-
----
-
-## Features
-
-- Lock-free SPSC design using C++ atomics
-- Cache-line aligned head/tail indices to prevent false sharing
-- Reduced atomic load pressure via local index caching
-- Optimized memory ordering:
-  - `release/acquire` for synchronization
-  - `relaxed` for fast-path buffer access
+This is a learning/portfolio project, built one component at a time with an emphasis on
+understanding *why* each design choice matters for latency and correctness, not just
+getting something that compiles.
 
 ---
 
-## Performance
+## What's here
 
-Benchmarked on macOS (Apple Silicon), release build (`-O2`), using Google Benchmark.
+| Component | Status | Docs |
+|---|---|---|
+| **SPSC Queue** — lock-free single-producer/single-consumer ring buffer | Implemented, unit tested, cross-core benchmark in progress | [docs/SPSC_QUEUE.md](docs/SPSC_QUEUE.md) |
+| **Memory Pool** — preallocated fixed-slot allocator | Implemented, unit tested, initial speed comparison added | [docs/MEMORY_POOL.md](docs/MEMORY_POOL.md) |
+| **Order Book / Matching Engine** — price-time priority limit order book | Core matching logic implemented and tested | [docs/ORDER_BOOK.md](docs/ORDER_BOOK.md) |
+| **TCP socket layer** (`socket_utils.h`, `tcp_socket.h`) | Work in progress, not yet wired into the matching engine | — |
 
-| Benchmark | Wall Time | CPU Time |
-|----------|-----------|----------|
-| 500 `emplace_back`, queue size 5000 | 1,013 ns | 1,016 ns |
+For a tour of the specific engineering techniques used across the codebase (lock-free
+programming, thread pinning, move semantics, benchmarking methodology, etc.), see:
 
-### ~2 ns per operation (amortized)
-
-This is near L1 cache latency range and reflects a highly optimized fast path. Wall and CPU times being nearly identical suggests minimal OS scheduling overhead.
-
-> ⚠️ Note: Microbenchmark results are hardware- and workload-dependent and should not be treated as universal throughput numbers.
-
----
-
-## Design & Optimizations
-
-### False sharing avoidance
-
-`head` and `tail` indices are placed on separate cache lines using `alignas(64)`.
-
-This prevents cache line bouncing between producer and consumer cores, reducing coherence traffic and improving scalability.
+**➡️ [docs/CONCEPTS.md](docs/CONCEPTS.md)**
 
 ---
 
-### Memory ordering model
+## Repository structure
 
-- Producer writes use `std::memory_order_release`
-- Consumer reads use `std::memory_order_acquire`
-- Buffer accesses use `std::memory_order_relaxed`
+```
+.
+├── CMakeLists.txt                 # root build config, fetches googletest + benchmark
+├── header/
+│   ├── libraries/                 # the actual system -- header-only
+│   │   ├── common.h               # shared types: Order, ClientRequest, enums, wire structs
+│   │   ├── spsc_queue.h           # LockedQueue + lock-free SPSCQueue
+│   │   ├── mempool.h              # MemoryPoolHeap
+│   │   ├── matching_engine.h      # PriceLevel, HalfBook, Book, MatchingEngine
+│   │   ├── thread.h               # launch_thread() + cross-platform CPU pinning
+│   │   ├── log.h                  # compile-time-gated logging macro
+│   │   ├── socket_utils.h         # raw socket helpers (WIP)
+│   │   └── tcp_socket.h           # batching TCP wrapper (WIP)
+│   └── tests/                     # GoogleTest unit tests + Google Benchmark microbenchmarks
+│       ├── spsc_queue.cpp / spsc_queue_bench.cpp
+│       ├── mempool.cpp / mempool_bench.cpp
+│       ├── matching_engine.cpp
+│       └── thread.cpp
+├── docs/                          # component design docs (this is where the detail lives)
+└── .github/workflows/             # CI: unit tests + benchmark, run on every push
+```
 
-Correctness is guaranteed through index synchronization, avoiding expensive `seq_cst` fences and improving throughput.
 
 ---
 
-### Local index caching
+## Building & running
 
-Each thread caches the last observed opposite index and only refreshes it when the queue appears full or empty.
+```bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j
+```
 
-This reduces atomic loads on the hot path and improves steady-state performance.
+Dependencies (GoogleTest, Google Benchmark) are fetched automatically via CMake's
+`FetchContent` — no manual setup needed for those. The benchmark target additionally
+links against [gperftools](https://github.com/gperftools/gperftools) (`profiler`) for
+CPU profiling support; on Debian/Ubuntu this is `libgoogle-perftools-dev`.
+
+**Run the unit tests:**
+
+```bash
+cd build
+ctest --output-on-failure
+```
+
+**Run the benchmarks:**
+
+```bash
+./build/header/tests/benchmarks
+```
+
+Filter to a specific benchmark with `--benchmark_filter=<regex>`, e.g.
+`--benchmark_filter=Mempool` or `--benchmark_filter=SPSC_CROSS_CORE`.
 
 ---
 
-## Environment
+## CI
 
-- Platform: macOS (Apple Silicon)
-- Compiler: Clang
-- Build flags: `-O2`
-- Benchmark tool: Google Benchmark
-- Queue size: 5000 elements
+Every push runs two GitHub Actions workflows:
+
+- **`.github/workflows/tests.yml`** — builds the project and runs the full GoogleTest
+  suite via `ctest`.
+- **`.github/workflows/spsc_q.yml`** — builds and runs the Google Benchmark suite (for
+  visibility into perf trends over time; not currently a pass/fail gate).
+
+---
+
+## A note on where the performance numbers stand
+
+You'll notice the memory pool and SPSC queue docs describe design intent and correctness
+testing in detail, but are deliberately light on hard performance numbers. That's
+intentional — see the "Testing status" section in each doc for why, and what's still
+left to nail down before those numbers are trustworthy enough to publish here.

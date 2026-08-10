@@ -113,7 +113,7 @@ bool set_thread_affinity(int group_id, int qos_class) {
     cpu_set_t cpuset;
     CPU_ZERO(&cpuset); // initialize set to zero
     CPU_SET(group_id, &cpuset);
-    return pthread_getaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset) == 0; // return 0 on sucess
+    return pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset) == 0; // return 0 on sucess
 
 #else 
     return false;

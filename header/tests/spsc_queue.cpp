@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
-#include "common.h"
-#include "spsc_queue.h"
+#include "../libraries/common.h"
+#include "../libraries/spsc_queue.h"
 
 
 
