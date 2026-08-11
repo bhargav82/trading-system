@@ -12,14 +12,15 @@ add_executable(test_thread
     thread.cpp
 )
 
-# add_executable(test_mempool
-#     mempool.cpp
-# )
+add_executable(test_mempool
+    mempool.cpp
+)
 
 foreach(target
     test_matching_engine
     test_spsc_q
     test_thread
+    test_mempool
 )
     target_compile_definitions(${target}
         PRIVATE LOG_LEVEL=1
@@ -45,7 +46,10 @@ gtest_discover_tests(test_thread)
 # Benchmarks
 add_executable(benchmarks
     spsc_queue_bench.cpp
+    mempool_bench.cpp
 )
+
+
 
 target_compile_definitions(benchmarks
     PRIVATE LOG_LEVEL=0
@@ -60,5 +64,4 @@ target_include_directories(benchmarks
 target_link_libraries(benchmarks
     PRIVATE
         benchmark::benchmark_main
-        profiler
 )

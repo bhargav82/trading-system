@@ -2,8 +2,10 @@
 #include "../libraries/spsc_queue.h"
 #include "../libraries/thread.h"
 #include <benchmark/benchmark.h>
-#include <gperftools/profiler.h>
-#include <x86intrin.h>
+
+#if defined(__x86_64__)
+    #include <x86intrin.h>
+#endif
 
 #include <atomic>
 #include <memory>
@@ -22,10 +24,34 @@
 constexpr int kItemsPerIteration = 500;
 constexpr size_t kQueueCapacity = 5000;
 
+static void LQ_Benchmark_EMPLACE(benchmark::State& state) {
+    for (auto _ : state) {
+        state.PauseTiming();
+        LockedQueue<int> q;
+        state.ResumeTiming();
+        for (int i = 0; i < kItemsPerIteration; ++i) {
+            q.push(i);
+        }
+    }
+}
+BENCHMARK(LQ_Benchmark_EMPLACE);
+
+
+static void LQ_Benchmark_POP(benchmark::State& state) {
+    for (auto _ : state) {
+        state.PauseTiming();
+        LockedQueue<int> q;
+        state.ResumeTiming();
+        for (int i = 0; i < kItemsPerIteration; ++i) {
+            q.pop();
+        }
+    }
+}
+BENCHMARK(LQ_Benchmark_POP);
 
 
 static void SPSC_Benchmark_EMPLACE(benchmark::State& state) {
-    ProfilerStart("SPSC_profiling_emplace");
+    
     for (auto _ : state) {
         state.PauseTiming();
         SPSCQueue<int> q(kQueueCapacity);
@@ -38,7 +64,7 @@ static void SPSC_Benchmark_EMPLACE(benchmark::State& state) {
 BENCHMARK(SPSC_Benchmark_EMPLACE);
 
 static void SPSC_Benchmark_POP(benchmark::State& state) {
-    ProfilerStart("SPSC_profiling_pop");
+    
     for (auto _ : state) {
         state.PauseTiming();
         SPSCQueue<int> q(kQueueCapacity);
@@ -102,6 +128,7 @@ static void SPSC_CROSS_CORE(benchmark::State& state) {
   
 #endif
 }
-BENCHMARK(SPSC_CROSS_CORE)->Iterations(1)->Repetitions(20)->ReportAggregatesOnly();
+// don't want google-benchmark from doing too many of its own iterations
+BENCHMARK(SPSC_CROSS_CORE)->Iterations(1)->Repetitions(50);
 
 BENCHMARK_MAIN();

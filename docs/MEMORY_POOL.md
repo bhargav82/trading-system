@@ -98,3 +98,22 @@ through the allocator.
    an absolute sense and not just relative to each other.
 4. Publish the resulting numbers, with the methodology and environment noted
    explicitly, in this doc.
+
+
+
+### Memory Pool vs. Heap Allocation (`new`/`delete`)
+
+Single-threaded, uncontended microbenchmarks comparing a preallocated,
+free-list-backed memory pool against standard heap allocation.
+
+| Benchmark                  | Time      | Iterations   | Speedup vs. heap |
+|-----------------------------|-----------|--------------|-------------------|
+| `Mempool_NewDelete`         | 34.1 ns   | 19,305,552   | baseline          |
+| `Mempool_Preallocated`      | 6.94 ns   | 100,784,681  | **~4.9x**         |
+| `Mempool_NewDelete_Batch` (32 objs)    | 2439 ns   | 285,420      | baseline          |
+| `Mempool_Preallocated_Batch` (32 objs) | 222 ns    | 3,145,926    | **~11x**          |
+
+The larger speedup in the batch case reflects both avoided allocator overhead
+*and* the spatial locality of pulling contiguous slots from the pool, versus
+scattered heap addresses from repeated `new` calls incurring additional cache
+misses.

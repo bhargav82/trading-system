@@ -1,17 +1,13 @@
-# Trading System
+# Order Matching Engine
 
-A low-latency trading system built from scratch in modern C++, focused on the core
-infrastructure pieces a matching engine needs: a lock-free SPSC queue for inter-thread
+A low-latency order matching engine built from scratch in modern C++, focused on the core
+infrastructure pieces a matching engine needs: a lock-free SPSC queue for cross-thread
 messaging, a custom memory pool to keep order allocation off the general-purpose
-allocator, and a price-time-priority limit order book on top of them.
-
-This is a learning/portfolio project, built one component at a time with an emphasis on
-understanding *why* each design choice matters for latency and correctness, not just
-getting something that compiles.
+allocator, and a limit order book with price-time priority.
 
 ---
 
-## What's here
+## Components
 
 | Component | Status | Docs |
 |---|---|---|
@@ -20,7 +16,7 @@ getting something that compiles.
 | **Order Book / Matching Engine** — price-time priority limit order book | Core matching logic implemented and tested | [docs/ORDER_BOOK.md](docs/ORDER_BOOK.md) |
 | **TCP socket layer** (`socket_utils.h`, `tcp_socket.h`) | Work in progress, not yet wired into the matching engine | — |
 
-For a tour of the specific engineering techniques used across the codebase (lock-free
+To see the specific engineering techniques used across the codebase (lock-free
 programming, thread pinning, move semantics, benchmarking methodology, etc.), see:
 
 **➡️ [docs/CONCEPTS.md](docs/CONCEPTS.md)**
@@ -47,7 +43,7 @@ programming, thread pinning, move semantics, benchmarking methodology, etc.), se
 │       ├── mempool.cpp / mempool_bench.cpp
 │       ├── matching_engine.cpp
 │       └── thread.cpp
-├── docs/                          # component design docs (this is where the detail lives)
+├── docs/                          # component design docs 
 └── .github/workflows/             # CI: unit tests + benchmark, run on every push
 ```
 
@@ -62,9 +58,7 @@ cmake --build build -j
 ```
 
 Dependencies (GoogleTest, Google Benchmark) are fetched automatically via CMake's
-`FetchContent` — no manual setup needed for those. The benchmark target additionally
-links against [gperftools](https://github.com/gperftools/gperftools) (`profiler`) for
-CPU profiling support; on Debian/Ubuntu this is `libgoogle-perftools-dev`.
+`FetchContent`. 
 
 **Run the unit tests:**
 
@@ -79,8 +73,8 @@ ctest --output-on-failure
 ./build/header/tests/benchmarks
 ```
 
-Filter to a specific benchmark with `--benchmark_filter=<regex>`, e.g.
-`--benchmark_filter=Mempool` or `--benchmark_filter=SPSC_CROSS_CORE`.
+Filter to a specific benchmark with `--benchmark_filter=<benchmark_name>`, 
+e.g. `--benchmark_filter=Mempool` or `--benchmark_filter=SPSC_CROSS_CORE`.
 
 ---
 
@@ -95,9 +89,15 @@ Every push runs two GitHub Actions workflows:
 
 ---
 
-## A note on where the performance numbers stand
+## Next Steps
+  1. Development so far has happened on a shared, virtualized development machine. vCPU-to-
+   physical-core placement is controlled by the hypervisor, so being pinned to a vCPU doesn't
+   guarantee being pinned to a physical core. An accurate benchmark requires pinning threads to
+   physical cores (to prevent scheduler conflicts and cache invalidation) and locking CPU
+   frequency to prevent throttling. Neither of which is possible on virtualized hardware. 
+   Testing on a dedicated machine is needed to obtain accurate performance numbers.
 
-You'll notice the memory pool and SPSC queue docs describe design intent and correctness
-testing in detail, but are deliberately light on hard performance numbers. That's
-intentional — see the "Testing status" section in each doc for why, and what's still
-left to nail down before those numbers are trustworthy enough to publish here.
+  2. Build the TCP server to receive order requests from client and send back responses. 
+  3. Build the order updates server using multi-cast UDP to broadcast order updates, so clients
+     can maintain an accurate book.
+
