@@ -1,11 +1,18 @@
 #pragma once
 #include <stdio.h>
-#include <chrono>
 #include <atomic>
 #include <thread>
 #include <iostream>
 #include "log.h"
 
+#if defined (__x85_64__)
+    #include <immintrin.h>
+    #define hardware_pause() _mm_pause()
+#else
+    #include <chrono>
+    #define hardware_pause() std::this_thread::sleep_for(std::chrono::seconds(1))
+
+#endif
 #if defined(__APPLE__) 
     #include <pthread.h>
     #include <mach/mach.h>
@@ -67,7 +74,7 @@ auto launch_thread(int group_id, int qos, Func&& f, Args&& ...args) noexcept {
 
     // Thread has been scheduled but hasn't started doing any of its work yet
     while (!failed.load() && !running.load()) {
-        std::this_thread::sleep_for(std::chrono::seconds(1));
+        hardware_pause();
     }
 
     // Started running, but failed thread pinning -> immediately stop
