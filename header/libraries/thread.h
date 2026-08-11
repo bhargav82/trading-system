@@ -5,7 +5,7 @@
 #include <iostream>
 #include "log.h"
 
-#if defined (__x85_64__)
+#if defined (__x86_64__)
     #include <immintrin.h>
     #define hardware_pause() _mm_pause()
 #else

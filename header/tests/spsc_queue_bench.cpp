@@ -81,8 +81,55 @@ BENCHMARK(SPSC_Benchmark_POP);
 
 
 static constexpr int N = 1000000; // 1 million
-static void SPSC_CROSS_CORE(benchmark::State& state) {
+static void LQ_CROSS_CORE(benchmark::State& state) {
+#if defined (__linux__)
+    for (auto _ : state) {
+        state.PauseTiming();
+        LockedQueue<int> q;
+        std::atomic<bool> ready = false;
 
+        auto producer = launch_thread(2, 2, [&]() {
+            while (!ready.load(std::memory_order_acquire)) {}
+            for (int i = 0; i < N; ++i) {
+                while (!q.try_push(i)) {}; // keep spinning until a success
+                
+            }
+        });
+
+        auto consumer = launch_thread(3, 2, [&]() {
+            while (!ready.load(std::memory_order_acquire)) {}
+            for (int i = 0; i < N; ++i) {
+                int x = 0;
+                while (!q.try_pop(x)) {}; 
+                benchmark::DoNotOptimize(x);
+            }
+        });
+
+        assert(consumer != nullptr);
+        assert(producer != nullptr);
+        state.ResumeTiming();
+        uint32_t cpuid;
+
+        _mm_lfence(); // ensure that benchmarking is within the fence -> no CPU OOO
+        uint64_t start = __rdtsc(); // start the timer
+        begin.store(true, std::memory_order_release);
+        producer->join();
+        consumer->join();
+        uint64_t end = __rdtscp(&cpuid); // end the timer
+        _mm_lfence(); // make sure no other instructions are re-ordered before the timer ends
+
+        delete producer;
+        delete consumer;
+        state.counters["total_cycles"] = static_cast<double>(end - start);
+        state.counters["cycles_per_op"] = static_cast<double>(end - start) / (2 * N); // cycles per operations end - start counts total time for N pushes and pops
+    }
+#endif
+}
+BENCHMARK(LQ_CROSS_CORE)->Iterations(1)->Repetitions(50);
+
+
+
+static void SPSC_CROSS_CORE(benchmark::State& state) {
 // pinned to CPU 6 (core 3) and CPU 4 (core 2), since testing machine uses hyperthreading -> need to test cross core (at same frequency)
 #if defined(__linux__)
     for (auto _ : state) {

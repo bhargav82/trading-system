@@ -3,6 +3,7 @@
 // locked queue
 #include <deque>
 #include <mutex>
+#include <condition_variable>
 #include <iostream>
 
 // spsc lock free
@@ -18,34 +19,76 @@
 // Normal thread-safe queue using locks
 // Lock_Guard ensures that lock is released at end of scope, even if an exception is thrown
 // All operations are blocking, concurrent called serialize on mutex
+
 template <typename T>
 class LockedQueue {
 private:
     std::deque<T> queue;
     std::mutex m;
-
+    std::condition_variable cv;
+    size_t max_size; // 0 == unbounded
+ 
 public:
-    // Pushes a copy of val onto the back of the queue
+    explicit LockedQueue(size_t max_size = 0) : max_size(max_size) {}
+ 
+    // Pushes a copy of val onto the back of the queue. Blocks if the queue
+    // is at capacity (bounded mode only) until a slot opens up.
     void push(const T& val) {
+        {
+            std::unique_lock<std::mutex> lock(m);
+            if (max_size > 0) {
+                cv.wait(lock, [this] { return queue.size() < max_size; });
+            }
+            queue.push_back(val);
+        } // release the lock before notifying -- avoids waking a thread that
+          // immediately blocks again trying to reacquire m
+        cv.notify_one();
+    }
+ 
+    // Non-blocking push for spin-based benchmarking -- mirrors
+    // SPSCQueue::try_insert(). Returns false immediately if bounded and full
+    // instead of waiting.
+    bool try_push(const T& val) {
         std::lock_guard<std::mutex> lock(m);
+        if (max_size > 0 && queue.size() >= max_size) {
+            return false;
+        }
         queue.push_back(val);
-    }; 
-
-    // Removes the front element
-    void pop() {
+        cv.notify_one();
+        return true;
+    }
+ 
+    // Removes and returns the front element, blocking until one is available.
+    T pop() {
+        std::unique_lock<std::mutex> lock(m);
+        cv.wait(lock, [this] {
+            return !queue.empty(); 
+        });
+        T val = std::move(queue.front());
+        queue.pop_front();
+        lock.unlock();
+        cv.notify_one(); // wake a producer waiting on capacity, if bounded
+        return val;
+    }
+ 
+    // Non-blocking pop for spin-based benchmarking 
+    bool try_pop(T& out) {
         std::lock_guard<std::mutex> lock(m);
-        if (!queue.empty()) {
-            queue.pop_front();
+        if (queue.empty()) {
+            return false;
         }
-    };
-
-    // Returns a copy of the front element, without removing it
-    T& top() {
-        std::lock_guard<std::mutex> lock(m);
-        if (!queue.empty()) {
-            return queue.at(0);
-        }
-    };
+        out = std::move(queue.front());
+        queue.pop_front();
+        cv.notify_one();
+        return true;
+    }
+ 
+    // Return a copy of the fonrt
+    T top() {
+        std::unique_lock<std::mutex> lock(m);
+        cv.wait(lock, [this] { return !queue.empty(); });
+        return queue.front();
+    }
 };
 
 
