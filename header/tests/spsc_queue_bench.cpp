@@ -40,10 +40,15 @@ BENCHMARK(LQ_Benchmark_EMPLACE);
 static void LQ_Benchmark_POP(benchmark::State& state) {
     for (auto _ : state) {
         state.PauseTiming();
-        LockedQueue<int> q;
+        LockedQueue<int> q(kQueueCapacity);
+        for (int i = 0; i < kItemsPerIteration; ++i) {
+            q.try_push(i);
+        }
         state.ResumeTiming();
         for (int i = 0; i < kItemsPerIteration; ++i) {
-            q.pop();
+            int x = 0;
+            q.try_pop(x);
+            benchmark::DoNotOptimize(x);
         }
     }
 }
@@ -112,7 +117,7 @@ static void LQ_CROSS_CORE(benchmark::State& state) {
 
         _mm_lfence(); // ensure that benchmarking is within the fence -> no CPU OOO
         uint64_t start = __rdtsc(); // start the timer
-        begin.store(true, std::memory_order_release);
+        ready.store(true, std::memory_order_release);
         producer->join();
         consumer->join();
         uint64_t end = __rdtscp(&cpuid); // end the timer
