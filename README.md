@@ -84,14 +84,13 @@ Every push runs two GitHub Actions workflows:
 
 - **`.github/workflows/tests.yml`** — builds the project and runs the full GoogleTest
   suite via `ctest`.
-- **`.github/workflows/spsc_q.yml`** — builds and runs the Google Benchmark suite (for
-  visibility into perf trends over time; not currently a pass/fail gate).
+- **`.github/workflows/spsc_q.yml`** — builds and runs the Google Benchmark suite.
 
 ---
 
 ## Next Steps
-  1. Development so far has happened on a shared, virtualized development machine. vCPU-to-
-   physical-core placement is controlled by the hypervisor, so being pinned to a vCPU doesn't
+  1. Development so far has happened on a shared, virtualized development machine. vCPU-to-physical 
+   core placement is controlled by the hypervisor, so being pinned to a vCPU doesn't
    guarantee being pinned to a physical core. An accurate benchmark requires pinning threads to
    physical cores (to prevent scheduler conflicts and cache invalidation) and locking CPU
    frequency to prevent throttling. Neither of which is possible on virtualized hardware. 

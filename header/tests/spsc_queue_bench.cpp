@@ -83,20 +83,21 @@ BENCHMARK(SPSC_Benchmark_POP);
 static constexpr int N = 1000000; // 1 million
 static void SPSC_CROSS_CORE(benchmark::State& state) {
 
+// pinned to CPU 6 (core 3) and CPU 4 (core 2), since testing machine uses hyperthreading -> need to test cross core (at same frequency)
 #if defined(__linux__)
     for (auto _ : state) {
         state.PauseTiming();
         // create two threads and call a function that will loop through push and pop
         SPSCQueue<int> q(1024);
         std::atomic<bool> begin = false;
-        auto* producer = launch_thread(0, 2, [&]() {
+        auto* producer = launch_thread(6, 2, [&]() {
             while (!begin.load(std::memory_order_acquire)) {}
             for (int i = 0; i < N; ++i) {
                 while (!q.try_insert().first) {}; // spin until it can emplace one bac
                 q.emplace_back(i);
             }
         });
-        auto* consumer = launch_thread(1, 2, [&]() {
+        auto* consumer = launch_thread(4, 2, [&]() {
             // have a spin lock here until we can start reading -> then start timing
             while (!begin.load(std::memory_order_acquire)) {} // spin until we can start timing
             for (int i = 0; i < N; ++i) {

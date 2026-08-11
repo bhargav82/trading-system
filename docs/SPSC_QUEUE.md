@@ -29,7 +29,7 @@ struct Queue    { T* buffer; uint64_t capacity; };
 ```
 
 - **Wasted-slot capacity scheme:** The queue allocates `cap + 1` slots internally for a
-  caller-requested capacity of `cap`. `Full`: (tail + 1) % capacity == head. `Empty`: (tail == head)
+  caller-requested capacity of `cap`. `Full`: (tail + 1) % capacity == head. `Empty`: (tail == head).
   This design reserves a slot to create a distinction between empty and full, instead of using an extra atomic variable
   keeping track of size. An extra atomic variable would need to be synchronized with every operation, degrading performance.
 
@@ -40,15 +40,15 @@ struct Queue    { T* buffer; uint64_t capacity; };
 
 
 - **Memory ordering:**
-- The producer writes the element, then updates `tail_ptr` with `memory_order_release`. 
-  The consumer reads `tail_ptr` with `memory_order_acquire` before reading the element. This
-  guarantees that once the consumer sees the new index, it also sees the element data. If a more
-  relaxed ordering was used, the consumer could see the new index but stale element data. 
-- The symmetric case applies to `head_ptr` for the producer to know when a slot has been
-  freed by the consumer.
-- All local index arithmetic and buffer indexing use `memory_order_relaxed` since they don't
-  require cross-thread synchronization. Using `seq_cst` everywhere would impose stronger ordering
-  than necessary, degrading performance.
+   - The producer writes the element, then updates `tail_ptr` with `memory_order_release`. 
+     The consumer reads `tail_ptr` with `memory_order_acquire` before reading the element. This
+      guarantees that once the consumer sees the new index, it also sees the element data. If a more
+      relaxed ordering was used, the consumer could see the new index but stale element data. 
+   - The symmetric case applies to `head_ptr` for the producer to know when a slot has been
+      freed by the consumer.
+   - All local index arithmetic and buffer indexing use `memory_order_relaxed` since they don't
+   require cross-thread synchronization. Using `seq_cst` everywhere would impose stronger ordering
+   than necessary, degrading performance.
 
 
 - **Index caching.** Rather than doing an `acquire` load of the opposite side's index on
@@ -56,16 +56,16 @@ struct Queue    { T* buffer; uint64_t capacity; };
   when the cached value suggests the queue is full (producer) or empty (consumer). This
   cuts atomic loads, and the cross-core cache traffic that comes with them on the hot path.
 
-To see the more information about how memory ordering and false sharing affects performance see:
+To see more information about how memory ordering and false sharing affects performance see:
 **➡️ [docs/CONCEPTS.md](CONCEPTS.md)**
 
 
-## Testing status
+
 ## Benchmarks
 
 ### Lock-Free SPSC Queue vs. Mutex-Guarded Queue
 
-Single-threaded, **uncontended** microbenchmarks — no thread was ever waiting
+Single-threaded, **uncontended** microbenchmarks, no thread was ever waiting
 on the lock. This measures the fixed per-call overhead of lock acquisition/release,
 not contention cost.
 
