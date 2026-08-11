@@ -90,14 +90,14 @@ static void SPSC_CROSS_CORE(benchmark::State& state) {
         // create two threads and call a function that will loop through push and pop
         SPSCQueue<int> q(1024);
         std::atomic<bool> begin = false;
-        auto* producer = launch_thread(6, 2, [&]() {
+        auto* producer = launch_thread(2, 2, [&]() {
             while (!begin.load(std::memory_order_acquire)) {}
             for (int i = 0; i < N; ++i) {
                 while (!q.try_insert().first) {}; // spin until it can emplace one bac
                 q.emplace_back(i);
             }
         });
-        auto* consumer = launch_thread(4, 2, [&]() {
+        auto* consumer = launch_thread(3, 2, [&]() {
             // have a spin lock here until we can start reading -> then start timing
             while (!begin.load(std::memory_order_acquire)) {} // spin until we can start timing
             for (int i = 0; i < N; ++i) {
