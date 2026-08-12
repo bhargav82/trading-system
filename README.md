@@ -94,7 +94,7 @@ Every push runs two GitHub Actions workflows:
 **➡️ [docs/SPSC_QUEUE.md](docs/SPSC_QUEUE.md#cross-core-performance-lock-free-spsc-vs-mutex-guarded-queue-on-real-hardware)**
 
 **Preallocated Memory Pool**
-**➡️ [docs/MEMORY_POOL.md](docs/MEMORY_POOL#Memory-Pool-vs-Heap-Allocation-(`new`/`delete`))**
+**➡️ [docs/MEMORY_POOL.md](docs/MEMORY_POOL.md#memory-pool-vs-heap-allocation-newdelete)**
 
 
 
