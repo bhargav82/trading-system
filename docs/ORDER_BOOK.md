@@ -53,7 +53,7 @@ range. Tick size is $1.
 ## `Book` — both sides, plus best bid/ask
 `Book` owns both `HalfBook`s and tracks `bestBuy`/`bestSell`:
 
-- **On insert**, updating the best price is `O(1)` — just compare the new order's price
+- **On insert**, updating the best price is `O(1)`: just compare the new order's price
   against the current best.
 - **On removal**, if the removed order *was* the best price, the code walks toward the
   next occupied price level (`bestBuy` downward, `bestSell` upward) until it finds one

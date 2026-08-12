@@ -11,10 +11,10 @@ allocator, and a limit order book with price-time priority.
 
 | Component | Status | Docs |
 |---|---|---|
-| **SPSC Queue** — lock-free single-producer/single-consumer ring buffer | Implemented, unit tested, cross-core benchmark in progress | [docs/SPSC_QUEUE.md](docs/SPSC_QUEUE.md) |
-| **Memory Pool** — preallocated fixed-slot allocator | Implemented, unit tested, initial speed comparison added | [docs/MEMORY_POOL.md](docs/MEMORY_POOL.md) |
+| **SPSC Queue** — lock-free single-producer/single-consumer ring buffer | Implemented, unit tested, benchmarked cross-core on real hardware with `perf` counters — **~60x** faster than a mutex-guarded queue in both latency and throughput | [docs/SPSC_QUEUE.md](docs/SPSC_QUEUE.md) |
+| **Memory Pool** — preallocated fixed-slot allocator | Implemented, unit tested, initial speed comparison shows **~5–11x** over `new`/`delete`| [docs/MEMORY_POOL.md](docs/MEMORY_POOL.md) |
 | **Order Book / Matching Engine** — price-time priority limit order book | Core matching logic implemented and tested | [docs/ORDER_BOOK.md](docs/ORDER_BOOK.md) |
-| **TCP socket layer** (`socket_utils.h`, `tcp_socket.h`) | Work in progress, not yet wired into the matching engine | — |
+| **TCP socket layer** (`socket_utils.h`, `tcp_socket.h`) | Work in progress | — |
 
 To see the specific engineering techniques used across the codebase (lock-free
 programming, thread pinning, move semantics, benchmarking methodology, etc.), see:
@@ -43,7 +43,8 @@ programming, thread pinning, move semantics, benchmarking methodology, etc.), se
 │       ├── mempool.cpp / mempool_bench.cpp
 │       ├── matching_engine.cpp
 │       └── thread.cpp
-├── docs/                          # component design docs 
+├── docs/                          # component design docs
+│   └── images/                    # perf stat screenshots referenced by the docs
 └── .github/workflows/             # CI: unit tests + benchmark, run on every push
 ```
 
@@ -88,15 +89,26 @@ Every push runs two GitHub Actions workflows:
 
 ---
 
-## Next Steps
-  1. Development so far has happened on a shared, virtualized development machine. vCPU-to-physical 
-   core placement is controlled by the hypervisor, so being pinned to a vCPU doesn't
-   guarantee being pinned to a physical core. An accurate benchmark requires pinning threads to
-   physical cores (to prevent scheduler conflicts and cache invalidation) and locking CPU
-   frequency to prevent throttling. Neither of which is possible on virtualized hardware. 
-   Testing on a dedicated machine is needed to obtain accurate performance numbers.
+## Performance highlights
+**Single-Producer Single-Consumer Lock Free Queue**
+**➡️ [docs/SPSC_QUEUE.md](docs/SPSC_QUEUE.md#cross-core-performance-lock-free-spsc-vs-mutex-guarded-queue-on-real-hardware)**
 
-  2. Build the TCP server to receive order requests from client and send back responses. 
-  3. Build the order updates server using multi-cast UDP to broadcast order updates, so clients
-     can maintain an accurate book.
+**Preallocated Memory Pool**
+**➡️ [docs/MEMORY_POOL.md](docs/MEMORY_POOL#Memory-Pool-vs-Heap-Allocation-(`new`/`delete`))**
 
+
+
+## Future Plans
+
+1. **Investigate the dTLB/iTLB miss gap between the SPSC and mutex-guarded queue.**
+   The mutex-guarded queue sees ~3x more dTLB load misses and ~5x more iTLB load
+   misses per operation than the lock-free queue. The likely explanation is the extra 
+   kernel code and data touched on the mutex's contended path thrashing the TLB.
+2. **Run the memory pool through `perf` on real hardware.** The current memory pool
+   numbers (`docs/MEMORY_POOL.md`) are from an uncontended microbenchmark comparing
+   `construct`/`destruct` against `new`/`delete`. The next step is capturing `perf stat` 
+   cache-reference/cache-miss, page-fault, and TLB-miss counters for the pool the same way, ideally
+   through the real `PriceLevel::add_order`/`remove_order` path rather than the pool in isolation.
+3. Build the TCP server to receive order requests from clients and send back responses.
+4. Build the order-updates server using multicast UDP to broadcast order updates, so
+   clients can maintain an accurate book.
