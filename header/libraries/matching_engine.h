@@ -15,7 +15,7 @@ constexpr size_t ME_MAX_MARKET_UPDATES = 1024;
 constexpr size_t ME_MAX_NUM_CLIENTS = 256;
 constexpr size_t ME_MAX_ORDER_IDS = 1024 * 1024;
 constexpr size_t ME_MAX_PRICE_LEVELS = 128;
-
+constexpr size_t ME_MAX_ORDERS_PER_PRICE = 128;
 
 typedef SPSCQueue<ClientRequest> ClientRequestQueue; // receive orders from order server
 typedef SPSCQueue<ClientResponse> ClientResponseQueue; // send confirmation messages (or failure) to order server
@@ -30,14 +30,22 @@ std::atomic<market_order> market_order_id = 0;
 template <typename T>
 class PriceLevel {
 public:
-    explicit PriceLevel(size_t level_size) : orders(level_size) {
+    PriceLevel() : orders(ME_MAX_ORDERS_PER_PRICE) {
         head = new Order{nullptr, nullptr, 0, 0, 0, Side::DEFAULT};
         tail = new Order{nullptr, nullptr, 0, 0, 0, Side::DEFAULT};
 
         head->next = tail;
         tail->prev = head;
         
-    };
+    }
+    // explicit PriceLevel(size_t level_size) : orders(level_size) {
+    //     head = new Order{nullptr, nullptr, 0, 0, 0, Side::DEFAULT};
+    //     tail = new Order{nullptr, nullptr, 0, 0, 0, Side::DEFAULT};
+
+    //     head->next = tail;
+    //     tail->prev = head;
+        
+    // };
     
     T* add_order(ClientRequest* new_order) {
         // just add to the end if possible, construct this object with its values before hand
@@ -93,12 +101,12 @@ private:
 
 class HalfBook {
 public:
-    HalfBook() = delete;
-    explicit HalfBook(size_t level_size) {
-        for (size_t i = 0; i < level_size; ++i) {
-            levels.emplace_back(level_size);
-        }
-    }
+    // HalfBook() = delete;
+    // explicit HalfBook(size_t level_size) {
+    //     for (size_t i = 0; i < level_size; ++i) {
+    //         levels.emplace_back(level_size);
+    //     }
+    // }
 
     Order* insert_order(ClientRequest* order) {
         // add the order to the level it belongs to
@@ -123,7 +131,8 @@ public:
 private:
     // Keep an deque of memory pool heap of T objects
     // array doesn't work since Pricelevel isn't default constructible, vector doesn't work since PriceLevel isn't copyable
-    std::deque<PriceLevel<Order>> levels;
+    //std::deque<PriceLevel<Order>> levels;
+    std::array<PriceLevel<Order>, ME_MAX_PRICE_LEVELS> levels;
 };
 
 
@@ -138,8 +147,8 @@ class Book {
     FRIEND_TEST(MakeTradesBothSides, MatchingEngine);
 public:
     
-    Book() = delete;
-    explicit Book (size_t level_size) : sell_book(level_size), buy_book(level_size) {} // initializer list skips default construction
+    //Book() = delete;
+    //explicit Book (size_t level_size) : sell_book(), buy_book() {} // initializer list skips default construction
 
     [[nodiscard]] Order* insert_order(ClientRequest* order) {
         Order* inserted_order = nullptr;
@@ -293,7 +302,7 @@ public:
         auto it = books.find(t_id);
 
         if (it == books.end()) {
-            books[t_id] = new Book(ME_MAX_PRICE_LEVELS); 
+            books[t_id] = new Book(); 
         }
         try {
             Order* inserted_order = books[client_req->ticker_id]->insert_order(client_req);
